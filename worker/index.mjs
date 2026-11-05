@@ -382,6 +382,28 @@ const allowedOrigin=(request,env,url)=>{
   const list=String(env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean);
   return list.includes(origin)?origin:null;
 };
+// Generation can run past the ~100s an idle connection survives at the edge. Answer normally
+// when it is quick; otherwise send the headers and a space every few seconds, then the JSON
+// (leading whitespace is valid JSON). Failures after that point carry their code in the body.
+const withHeartbeat=async(run,env,context)=>{
+  const every=Number(env.HEARTBEAT_MS)||8000;
+  if(context.waitUntil)context.waitUntil(run.catch(()=>{}));
+  let timer;
+  const first=await Promise.race([run,new Promise(r=>{timer=setTimeout(()=>r(null),every);})]);
+  clearTimeout(timer);
+  if(first)return first;
+  const space=encoder.encode(' ');
+  let beat;
+  const body=new ReadableStream({
+    start(ctrl){
+      ctrl.enqueue(space);
+      beat=setInterval(()=>{try{ctrl.enqueue(space);}catch{clearInterval(beat);}},every);
+      run.then(async res=>{clearInterval(beat);try{ctrl.enqueue(encoder.encode(await res.text()));ctrl.close();}catch{}},()=>{clearInterval(beat);try{ctrl.enqueue(encoder.encode(JSON.stringify({code:'MODEL_FAILED',error:'模型生成失败，本次不计次数'})));ctrl.close();}catch{}});
+    },
+    cancel(){clearInterval(beat);},
+  });
+  return new Response(body,{status:200,encodeBody:'manual',headers:{'content-type':'application/json; charset=utf-8','content-encoding':'identity','cache-control':'no-store, no-transform','x-content-type-options':'nosniff','x-streamed':'heartbeat'}});
+};
 const withCors=(response,origin)=>{
   if(!origin)return response;
   const out=new Response(response.body,response);
@@ -463,6 +485,7 @@ const handlers = {
         }
       }catch{try{await release(env.DB,visitor,reservation.lease_until);}catch{}return error('SERVER_UNAVAILABLE','公共额度记录暂时不可用',503);}
     }
+    const run=(async()=>{
     try{
       let output;
       const extra={image_description:data.image_description,style:data.style};
@@ -485,6 +508,8 @@ const handlers = {
       if(e&&e.message==='SERVER_CONFIG')return error('SERVER_CONFIG','服务尚未配置',503);
       return error('MODEL_FAILED','模型生成失败，本次不计次数',502);
     }
+    })();
+    return withHeartbeat(run,env,context);
   }
 };
 export default handlers;

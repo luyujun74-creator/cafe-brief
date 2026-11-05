@@ -241,3 +241,26 @@ test('client cannot supply its own image prompt and shop name is optional',async
   assert.equal(r.status,200);
   assert.doesNotMatch(prompts[0],/draw something else/);
 });
+
+test('slow generation stays alive with whitespace, then ends in parseable JSON and settles the count', async () => {
+  const e=await env();e.ARK_IMAGE_MODEL='image-model';e.HEARTBEAT_MS='5';
+  const provider=async(url)=>{await new Promise(r=>setTimeout(r,40));if(url.endsWith('/images/generations'))return new Response(JSON.stringify({data:[{url:'https://example.volces.com/r.png'}]}));return model();};
+  const r=await worker.fetch(request('/api/package',{...facts,shop:'',image:IMAGE_DATA}),e,{fetch:provider});
+  assert.equal(r.status,200);
+  assert.equal(r.headers.get('x-streamed'),'heartbeat');
+  const text=await r.text();
+  assert.match(text,/^ +\{/);
+  const body=JSON.parse(text);
+  assert.equal(body.code,undefined);
+  assert.equal(body.remaining,2);
+});
+
+test('a slow failure reports its code in the streamed body and does not count', async () => {
+  const e=await env();e.ARK_IMAGE_MODEL='image-model';e.HEARTBEAT_MS='5';
+  const provider=async()=>{await new Promise(r=>setTimeout(r,30));return new Response('nope',{status:500});};
+  const r=await worker.fetch(request('/api/package',{...facts,shop:'',image:IMAGE_DATA}),e,{fetch:provider});
+  const body=JSON.parse(await r.text());
+  assert.equal(r.status,200);
+  assert.equal(body.code,'MODEL_FAILED');
+  assert.equal(e.DB.rows.values().next().value.uses,0);
+});

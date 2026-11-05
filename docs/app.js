@@ -55,7 +55,8 @@
       response = await fetch(apiUrl(path), { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), credentials: API_BASE ? 'omit' : 'same-origin' });
     } catch { const e = new Error('NETWORK'); e.code = 'NETWORK'; throw e; }
     let payload = null; try { payload = await response.json(); } catch {}
-    if (!response.ok) { const e = new Error((payload && payload.error) || '请求失败'); e.code = (payload && payload.code) || ('HTTP_' + response.status); throw e; }
+    if (response.ok && !payload) { const e = new Error('NETWORK'); e.code = 'NETWORK'; throw e; }
+    if (!response.ok || (payload && payload.code)) { const e = new Error((payload && payload.error) || '请求失败'); e.code = (payload && payload.code) || ('HTTP_' + response.status); throw e; }
     return payload;
   }
   async function apiStatus() {
