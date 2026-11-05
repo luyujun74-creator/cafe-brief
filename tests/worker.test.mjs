@@ -19,7 +19,7 @@ class Database {
         }
         if (sql.includes('INSERT INTO unlock_attempts')) return { attempts: 1 };
         if (sql.includes('INSERT INTO generation_attempts')) return ++this.calls <= 6 ? { attempts:this.calls } : null;
-        if (sql.includes('INSERT INTO public_budget')) return ++this.publicCalls <= Number(args[2]) ? { attempts:this.publicCalls } : null;
+        if (sql.includes('INSERT INTO public_budget')) return (this.publicCalls+=Number(args[1])) <= Number(args[2]) ? { attempts:this.publicCalls } : null;
         if (sql.includes('SELECT uses')) return { uses: this.rows.get(args[0])?.uses || 0 };
         if (sql.includes('SELECT source,visitor,expires_at FROM rendered_images')) return this.images.get(args[0])||null;
         if (sql.includes('UPDATE quota SET uses')) {
@@ -195,7 +195,7 @@ test('missing, truncated, or spoofed reference image is rejected before any paid
 });
 
 test('public daily attempt budget also counts failed paid calls',async()=>{
-  const e=await env();e.MAX_PUBLIC_DAILY_CALLS='1';
+  const e=await env();e.MAX_PUBLIC_DAILY_CALLS='2';
   const first=await worker.fetch(request('/api/generate',facts),e,{fetch:async()=>new Response('',{status:500})});
   assert.equal(first.status,502);
   const second=await worker.fetch(request('/api/generate',facts),e,{fetch:model});
@@ -268,4 +268,13 @@ test('a slow failure reports its code in the streamed body and does not count', 
 test('no upstream call uses redirect:error, which the Workers runtime rejects', async () => {
   const fs=await import('node:fs');
   assert.doesNotMatch(fs.readFileSync(new URL('../worker/index.mjs',import.meta.url),'utf8'),/redirect:\s*'error'/);
+});
+
+test('a full package reserves budget for its worst case of three model calls', async () => {
+  const e=await env();e.ARK_IMAGE_MODEL='image-model';e.MAX_PUBLIC_DAILY_CALLS='2';
+  let calls=0;
+  const r=await worker.fetch(request('/api/package',{...facts,shop:'',image:IMAGE_DATA}),e,{fetch:async()=>{calls++;return model();}});
+  assert.equal(r.status,429);
+  assert.equal((await r.json()).code,'PUBLIC_BUDGET_EXCEEDED');
+  assert.equal(calls,0);
 });

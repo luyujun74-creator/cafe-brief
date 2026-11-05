@@ -13,7 +13,7 @@ database_name = "cafe-brief"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [vars]
-ARK_MODEL = "ep-20261105151822-6svqx"
+ARK_MODEL = "your-text-model-endpoint-id"
 ARK_IMAGE_MODEL = "doubao-seedream-5-0-pro-260628"
 MAX_PUBLIC_DAILY_CALLS = "100"
 

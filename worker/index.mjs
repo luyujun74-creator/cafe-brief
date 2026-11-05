@@ -368,6 +368,7 @@ function allowGeneration(db,key){
   return db.prepare('INSERT INTO generation_attempts (visitor,minute,attempts) VALUES (?,?,1) ON CONFLICT(visitor,minute) DO UPDATE SET attempts=attempts+1 WHERE attempts<8 RETURNING attempts').bind(key,minute).first();
 }
 function allowPublicAttempt(db,limit,units){
+  if(units>limit)return Promise.resolve(null);
   const day=Math.floor(Date.now()/86400000);
   return db.prepare('INSERT INTO public_budget (day,attempts) VALUES (?,?) ON CONFLICT(day) DO UPDATE SET attempts=attempts+excluded.attempts WHERE attempts+excluded.attempts<=? RETURNING attempts').bind(day,units,limit).first();
 }
@@ -476,7 +477,8 @@ const handlers = {
     if(!admin){
       try{reservation=await reserve(env.DB,visitor);}catch{return error('SERVER_UNAVAILABLE','次数记录暂时不可用',503);}
       if(!reservation){return (await getUsesAsync(env.DB,visitor))>=3?error('QUOTA_EXCEEDED','免费包装次数已用完',429):error('GENERATION_BUSY','上一份包装正在处理，请稍后再试',409);}
-      const units=url.pathname==='/api/package'?2:1;
+      // Worst case per request: the text model may be retried once.
+      const units=url.pathname==='/api/package'?3:url.pathname==='/api/generate-image'?1:2;
       const limit=Number(env.MAX_PUBLIC_DAILY_CALLS||200);
       try{
         if(!Number.isInteger(limit)||limit<1||limit>100000||!(await allowPublicAttempt(env.DB,limit,units))){

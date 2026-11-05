@@ -353,6 +353,11 @@
     });
   }
   function exportCopy(f) {
+    if (S.aiDetail && S.copyStale) {
+      const out = [`商品名称：${f.name}`, `售价：¥${f.price}`];
+      if (f.offer) out.push(`活动：${f.offer}`);
+      return out.join('\n') + '\n';
+    }
     if (S.aiDetail) {
       const out = [`商品标题：${S.aiTitle}`, `售价：¥${f.price}`, `商品描述：${S.aiDetail}`];
       if (f.offer) out.push(`活动：${f.offer}`);
@@ -369,7 +374,7 @@
   function renderAllCopy() {
     renderCopy($('#factsCopy'), baseFacts);
     renderCopy($('#resCopy'), currentFacts());
-    if (S.aiDetail) { $('#copyNote').textContent = S.copyStale ? '你改了信息，这段文案还是之前的，重新包装后才会更新。' : '文案由 AI 按你填的事实写成，发布前请再读一遍。'; return; }
+    if (S.aiDetail) { $('#copyNote').textContent = S.copyStale ? '你改了信息，这段文案已过期：复制和下载时不会带上它，重新包装后才会更新。' : '文案由 AI 按你填的事实写成，发布前请再读一遍。'; return; }
     const n = Object.values(S.claims).filter(v => !v).length;
     $('#copyNote').textContent = n ? `${n} 处蓝色描述没确认，导出时会去掉。点一下可保留。` : '描述都已确认，会写进导出文案。';
   }
@@ -455,7 +460,7 @@
     const fr = $(`input[name=fid][value=${useAiMode && k.mode !== 'raw' ? 'scene' : 'raw'}]`); if (fr) fr.checked = true;
     $$('input[name=fid]').forEach(i => { i.disabled = !useAiMode; });
     const anyAi = useAiMode && Object.values(S.kit).some(x => x.status === 'done' && (x.mode === 'ai' || x.mode === 'scene'));
-    $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，商品保持你照片里的样子。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '只裁切和排版，商品没有被重绘。';
+    $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，会尽量保持商品原样，下载前请核对。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '只裁切和排版，商品没有被重绘。';
     $('#confirmRow').hidden = !anyAi;
     $('#vers').innerHTML = k.versions.map((v, i) => `<button type="button" data-i="${i}" aria-pressed="${i === k.cur}" aria-label="第 ${i + 1} 版">${i + 1}</button>`).join('');
     $$('#vers button').forEach(b => b.addEventListener('click', () => { k.cur = +b.dataset.i; Object.assign(k, k.versions[k.cur]); redrawStage(); drawStrip(); updateResult(); }));
@@ -491,7 +496,12 @@
 
     if (S.live) {
       let result, sceneImg;
-      try { result = await apiPost('/api/package', buildPayload()); sceneImg = await loadScene(result.image_url); }
+      try {
+        result = await apiPost('/api/package', buildPayload());
+        if (typeof result.remaining === 'number') { S.remaining = result.remaining; updateQuota(); }
+        try { sceneImg = await loadScene(result.image_url); }
+        catch { await new Promise(r => setTimeout(r, 2000)); sceneImg = await loadScene(result.image_url); }
+      }
       catch (e) {
         if (run !== S.run) return;
         if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; setPhase('ready'); return openUnlock(); }
@@ -545,7 +555,7 @@
   function showError(kind, message) {
     const c = {
       server: ['这次没做成', message + '。信息和照片都还在。'],
-      network: ['没连上模型', '网络中断或服务超时。信息和照片都还在，可以直接重新包装；已扣的次数以右上角显示为准。'],
+      network: ['没连上模型', '网络中断或服务超时。信息和照片都还在，可以直接重新包装；剩余次数以右上角为准。'],
       moderation: ['这张照片没通过模型检查', '模型拒绝处理这张照片，这次没有扣次数。换一张只拍商品的照片，或回去调整文字。'],
       ratelimit: ['操作太频繁', '为了公平使用，请稍等一分钟再试。这次没有扣次数。'],
     }[kind] || ['生成失败', '这次没有扣次数，信息和照片都还在，可以重新包装。'];
@@ -726,7 +736,7 @@
       S.live = true; S.unlocked = st.unlimited === true;
       if (typeof st.remaining === 'number') S.remaining = st.remaining;
       banner.dataset.state = 'live';
-      banner.textContent = 'AI 生成服务已接通：每位访客可免费包装 3 次。';
+      banner.textContent = 'AI 生成服务已接通：每个网络可免费包装 3 次。';
     } catch {
       S.live = false;
       banner.dataset.state = 'offline';
