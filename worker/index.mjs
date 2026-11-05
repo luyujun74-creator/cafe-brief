@@ -323,7 +323,7 @@ async function renderedImage(request,env,fetchImpl) {
   try{target=new URL(record.source);}catch{return error('IMAGE_INVALID','图片链接无效',400);}
   if(target.protocol!=='https:'||!allowedImageHost(target.hostname))return error('IMAGE_INVALID','图片链接已失效',403);
   let response;
-  try{response=await fetchImpl(record.source,{redirect:'error',signal:AbortSignal.timeout(20000)});}catch{return error('IMAGE_UNAVAILABLE','图片暂时无法读取',502);}
+  try{response=await fetchImpl(record.source,{redirect:'manual',signal:AbortSignal.timeout(20000)});}catch(e){console.error('rendered_fetch_failed',e&&e.name,e&&e.message);return error('IMAGE_UNAVAILABLE','图片暂时无法读取',502);}
   const kind=response.headers.get('content-type')||'';
   if(!response.ok||!/^image\/(?:png|jpeg|webp)(?:;|$)/i.test(kind))return error('IMAGE_UNAVAILABLE','图片暂时无法读取',502);
   const reader=response.body&&response.body.getReader?response.body.getReader():null;

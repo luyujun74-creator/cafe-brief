@@ -264,3 +264,8 @@ test('a slow failure reports its code in the streamed body and does not count', 
   assert.equal(body.code,'MODEL_FAILED');
   assert.equal(e.DB.rows.values().next().value.uses,0);
 });
+
+test('no upstream call uses redirect:error, which the Workers runtime rejects', async () => {
+  const fs=await import('node:fs');
+  assert.doesNotMatch(fs.readFileSync(new URL('../worker/index.mjs',import.meta.url),'utf8'),/redirect:\s*'error'/);
+});
