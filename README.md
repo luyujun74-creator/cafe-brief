@@ -1,41 +1,49 @@
-# Café Brief：咖啡店营销创意助手
+# Café Brief · 商品包装工作台
 
-**在线体验：https://luyujun74-creator.github.io/cafe-brief/**
+上传一张商品照，填名称和价格，生成可用于美团和自有店铺的整套素材：主图、方图、Banner、竖版海报和上架文案。可以换风格、改文字、再来一版、下载。
 
-面向海外独立咖啡店的工作流原型：输入已确认的商品、价格和活动信息，得到 4:5 海报排版、英文 Instagram 文案和 15 秒拍摄分镜，经过事实规则检查和人工确认后导出。
+在线体验：https://luyujun74-creator.github.io/cafe-brief/
 
-本项目借助 AI 协作开发。商家用户价值和营销效果尚未实测，没有真实商家的采用或提效数据。
+## 工作方式
 
-## 四种模式
-
-| 模式 | 说明 |
-|---|---|
-| 模板演示（默认） | 无需密钥，文案来自固定模板，页面标注“未调用模型” |
-| 免费公共模型 | 无需密钥，一键调用第三方 Pollinations 的匿名开源模型；限速，可用性不作保证。检查不通过时最多自动修订两轮 |
-| 网页版大模型 | 复制指令到 ChatGPT、Claude 等网页版，再粘贴回复；页面不直接连接这些网站，由你手动传递 |
-| 自己的 API 密钥 | 填写 OpenAI Chat Completions 格式接口、模型名和密钥；同样最多自动修订两轮 |
-
-另有[聊天指令版](agent-instructions.md)，可复制到聊天模型使用；[评测任务](eval-tasks.md)列出了预期结果。
-
-## 边界
-
-- 海报是原图排版，不是 AI 生图；分镜是拍摄方案，不是视频成片。
-- 规则检查只识别部分数字、币种和敏感宣称，不能替代人工核对。
-- 真实模式需要服务允许网页直接调用（跨域）；不允许的服务会报错，不会切回模板。
-- 网站没有后端。图片只在你的浏览器内处理；调用模型时，文字事实直接发送给对应服务，密钥只发送到你填写的地址。密钥只留在页面内存，刷新即清除，不写入导出文件。
-- 审核记录也只在页面内存中，用于防止导出过期内容，不是防篡改凭证。
+1. 浏览器把照片缩到长边 1280 后上传给后台。
+2. 豆包文本模型根据照片和你填写的信息写卖点和文案。
+3. Seedream 以照片为参考生成场景图。
+4. 价格、优惠、商品名由浏览器绘制成可编辑文字层，不交给图片模型；营销宣称只能来自用户输入。
 
 ## 结构
 
-- `docs/`：网站（GitHub Pages 从这里发布），`engine.js` 是生成、检查和导出逻辑。
-- `reference/`：最初的 Python 实现，作为对照基准。
-- `tests/`：测试。
+| 路径 | 作用 |
+| --- | --- |
+| `docs/` | 前端，由 GitHub Pages 托管。`config.js` 的 `apiBase` 指向后台，只放地址，不放密钥 |
+| `worker/` | Cloudflare Worker 后台：代理模型、次数限制、频控、解锁 |
+| `worker/schema.sql` | D1 表结构 |
+| `tests/` | 后台单元测试和真实浏览器回归测试 |
+
+`apiBase` 为空时，页面只运行离线示例，并明确标注未调用模型。
+
+## 次数限制
+
+每位访客可免费包装 3 次；一次完整包装用 1 次，“再来一版”也用 1 次。超过后输入解锁密码可不限次数。密码只在服务端以哈希保存和校验。
+
+## 部署后台
+
+```bash
+cp wrangler.toml.example wrangler.toml      # 填 D1 数据库 ID 和 ALLOWED_ORIGINS
+npx wrangler d1 create cafe-brief
+npx wrangler d1 execute cafe-brief --remote --file worker/schema.sql
+npx wrangler secret put ARK_API_KEY
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put ADMIN_PASSWORD_SALT
+npx wrangler secret put ADMIN_PASSWORD_HASH
+npx wrangler deploy
+```
+
+然后把 Worker 地址写入 `docs/config.js`。所有密钥只放在 Worker 的 secrets 里，不要提交到仓库。
 
 ## 测试
 
 ```bash
-python3 tests/differential.py          # JS 与 Python 规则逐项对照
-node --test tests/engine.test.cjs      # 模型流程、审核记录、密钥不外泄（注入回复）
-node tests/ui-regression.cjs && node tests/app-regression.cjs
-BASE_URL=https://luyujun74-creator.github.io/cafe-brief/ node tests/e2e.cjs   # 需要 playwright
+node --test tests/worker.test.mjs
+NODE_PATH=<含 playwright-core 的 node_modules> node tests/browser.test.cjs [截图目录]
 ```

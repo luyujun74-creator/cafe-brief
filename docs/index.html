@@ -1,10 +1,216 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src https:; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Café Brief · 咖啡店创意工作台</title><link rel="stylesheet" href="./style.css"></head><body>
-<header><a href="./">Café Brief<span>咖啡店创意工作台</span></a><span>作品原型 / Instagram</span></header>
-<main><div class="intro"><h1>把一杯咖啡，变成下一条好内容。</h1><p>从你确认的商品事实出发，准备海报、英文文案和 15 秒分镜。</p></div>
-<div class="workspace"><aside><form id="brief"><h2>这次想分享什么？</h2><p class="muted">预填均为虚构演示数据，使用前请替换。</p>
-<label>店名<input name="shop" required maxlength="120" value="Fern Coffee"></label><label>商品名称（英文）<input name="product" required maxlength="120" value="Iced Latte"></label><div class="row"><label>价格<input name="price" required inputmode="decimal" value="5.50"></label><label>币种<select name="currency"><option>USD</option><option>GBP</option><option>EUR</option><option>AUD</option></select></label></div>
-<label>已确认活动（英文，可留空）<textarea name="offer" maxlength="240" placeholder="不填则不添加折扣、期限或优惠"></textarea></label><label>表达语气<select name="tone"><option value="warm">温暖亲切</option><option value="minimal">简洁克制</option><option value="playful">轻松俏皮</option></select></label>
-<label>商品图<input id="photo" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="muted">PNG / JPEG / WebP，最多 8 MB。仅在你的浏览器内排版，不上传、不发送模型；无图时显示示意插画。</p>
-<label>工作模式<select name="mode"><option value="demo">模板演示 · 无需密钥</option><option value="free">免费公共模型 · 无需密钥</option><option value="chat">网页版大模型 · 复制粘贴</option><option value="live">自己的 API 密钥</option></select></label><div id="freeNote" class="modebox" hidden><p class="muted">直接点生成即可，由第三方公共服务 Pollinations 运行开源模型。免费、限速，可能较慢或暂时不可用。店名、商品和活动文字会发送给它，图片不会；请勿填写保密信息。</p></div><div id="chatConfig" class="modebox" hidden><p class="muted">1. 复制指令，发给你常用的网页版大模型。<a href="https://chatgpt.com/" target="_blank" rel="noopener">ChatGPT</a> · <a href="https://claude.ai/" target="_blank" rel="noopener">Claude</a> · <a href="https://chat.deepseek.com/" target="_blank" rel="noopener">DeepSeek</a></p><button id="copyPrompt" type="button" class="secondary">复制指令</button><textarea id="chatPrompt" rows="4" readonly aria-label="发给模型的指令"></textarea><label>2. 把模型回复粘贴到这里<textarea id="chatReply" rows="5" autocomplete="off"></textarea></label></div><div id="liveConfig" class="modebox" hidden><p class="muted">需支持 OpenAI Chat Completions 格式且允许网页直接调用的服务。密钥只留在本页内存，刷新即清除，直接发送到你填写的地址，不经过本站，也不写入导出文件。</p><label>接口地址（HTTPS）<input id="apiUrl" type="url" autocomplete="off" placeholder="https://api.openai.com/v1/chat/completions"></label><label>模型名<input id="apiModel" autocomplete="off"></label><label>API 密钥<input id="apiKey" type="password" autocomplete="new-password"></label></div><button id="generate" type="submit">生成创意草稿</button><p id="status" role="status">填好事实，开始一次创意练习。</p></form></aside>
-<section class="studio"><div class="studiohead"><h2>创意预览</h2><span id="badge">尚未生成</span></div><div class="posterarea"><canvas id="poster" width="1080" height="1350" aria-label="Instagram海报排版预览"></canvas><div class="notes"><h3>一份事实，三个出口</h3><p>4:5 海报排版<br>英文 Instagram 文案<br>15 秒短视频分镜</p><hr><p>海报是原图排版，非 AI 生图。<br>分镜是拍摄方案，非视频成片。</p><p>无图示意插画不代表真实商品。</p></div></div>
-<p id="layout" role="status"></p><details><summary>流程执行记录</summary><pre id="trace"></pre></details><div id="results" hidden><label>海报标题 · 可修改<input id="headline" maxlength="2000"></label><label>英文社媒文案 · 可修改<textarea id="caption" rows="6" maxlength="2000"></textarea></label><h3>15 秒拍摄分镜 · 可修改</h3><div id="shots"></div><div class="review"><h3>发布前检查</h3><p>规则只识别部分数字、币种和敏感宣称；无法验证店铺输入真实性或所有语义。请逐项人工复核。</p><ul id="flags"></ul><button id="check" type="button" class="secondary">重新检查修改稿</button> <button id="reviseChat" type="button" class="secondary" hidden>复制修订指令</button><label class="consent"><input id="confirm" type="checkbox"> 我已核对文案、商品事实及图片使用权</label></div><div class="actions"><button id="download" disabled>导出创意包 .json + .md</button><button id="png" class="secondary" disabled>保存海报 PNG</button></div><p class="muted">导出供人工审阅，不会自动发布。修改任何事实后须重新生成。</p></div></section></div><footer>独立咖啡店营销工作流原型 · AI 协作开发 · 用户价值与营销效果待实测 · <a href="https://github.com/luyujun74-creator/cafe-brief/blob/main/agent-instructions.md">聊天指令版</a> · <a href="https://github.com/luyujun74-creator/cafe-brief">源码</a></footer></main><script src="./studio.js"></script><script src="./engine.js"></script><script src="./app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN" data-roast="4" data-view="home">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#552A10">
+<title>Café Brief：手机拍一杯，上架一整套 · 商品包装工作台</title>
+<meta name="description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。小店商品包装工作台，手机上就能用。">
+<link rel="canonical" href="https://luyujun74-creator.github.io/cafe-brief/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Café Brief">
+<meta property="og:title" content="Café Brief：手机拍一杯，上架一整套">
+<meta property="og:description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。">
+<meta property="og:url" content="https://luyujun74-creator.github.io/cafe-brief/">
+<meta property="og:image" content="https://luyujun74-creator.github.io/cafe-brief/assets/og-cover.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Café Brief：手机拍一杯，上架一整套">
+<meta name="twitter:description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<div class="svc-banner" id="svcBanner" data-state="probing" role="status">正在确认 AI 生成服务…</div>
+
+<header class="top">
+  <a class="brand" href="#home">Café Brief</a>
+  <nav class="top-nav" aria-label="页面导航" data-only="home">
+    <a href="#kit">一整套有什么</a>
+    <a href="#phone">放进手机看</a>
+    <a href="#facts">价格和优惠</a>
+  </nav>
+  <span class="quota-chip" data-only="studio" id="quotaChip"></span>
+  <a class="btn btn-small btn-primary" href="#studio" data-only="home"><span>开始包装</span></a>
+  <a class="btn btn-small btn-ghost" href="#home" data-only="studio"><span>返回首页</span></a>
+</header>
+
+<main id="main">
+<!-- 首页 -->
+<div id="home" data-only="home">
+
+<section class="hero" aria-labelledby="heroTitle">
+  <h1 id="heroTitle" class="hero-title"><span>手机拍一杯，</span><span>上架一整套。</span></h1>
+  <div class="hero-cup" aria-hidden="true"><img id="heroCup" alt="" width="636" height="949"></div>
+  <div class="hero-foot">
+    <p class="hero-lede">传一张商品照，填名称和价格。主图、Banner、海报和上架文案一次做好，随时可改。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#studio"><span>上传商品照</span></a>
+      <a class="btn btn-text" href="#studio" id="trySample"><span>用示例试试</span></a>
+    </div>
+    <div class="dial-host" data-dial="hero"></div>
+  </div>
+</section>
+
+<section class="kit-sec" id="kit" aria-labelledby="kitTitle">
+  <h2 id="kitTitle" class="sec-title">一次包装，四张图一段文案</h2>
+  <p class="sec-lede">拖动试试同一杯咖啡的前后变化。下面每张纸都按实际比例摆放，标的是导出像素。</p>
+  <div class="ba" id="ba" style="--pos:50%">
+    <canvas id="baAfter" width="1600" height="1200" aria-hidden="true"></canvas>
+    <div class="ba-before"><canvas id="baBefore" width="1600" height="1200" aria-hidden="true"></canvas></div>
+    <span class="ba-tag ba-tag-l">手机原片</span>
+    <span class="ba-tag ba-tag-r">示意效果</span>
+    <input class="ba-range" type="range" min="0" max="100" value="50" aria-label="拖动对比手机原片和示意效果">
+    <span class="ba-handle" aria-hidden="true"></span>
+  </div>
+  <ul class="proofs" id="proofs"></ul>
+</section>
+
+<section class="phone-sec" id="phone" aria-labelledby="phoneTitle">
+  <div class="phone-copy">
+    <h2 id="phoneTitle" class="sec-title">顾客划到你时，只看一眼</h2>
+    <p class="sec-lede">外卖列表里的图往往只有拇指大小。每张图导出前，都能先放进手机界面看一眼。</p>
+    <div class="seg" role="radiogroup" aria-label="切换列表里的商品图">
+      <label><input type="radio" name="ph" value="raw"><span>手机原片</span></label>
+      <label><input type="radio" name="ph" value="pack" checked><span>包装后</span></label>
+    </div>
+    <p class="fine">手机界面为示意，不是平台真实页面。</p>
+  </div>
+  <div class="phone" aria-hidden="true">
+    <div class="phone-screen">
+      <canvas id="phBanner" width="720" height="240"></canvas>
+      <div class="ph-row is-you"><canvas id="phThumb" width="400" height="300"></canvas><div><b id="phName">冰奶油拿铁</b><small>拾叶咖啡</small><em id="phPrice">¥18</em></div></div>
+      <div class="ph-row"><i></i><div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div></div>
+      <div class="ph-row"><i></i><div><b class="ph-blank w2"></b><small class="ph-blank w1"></small><em class="ph-blank w3"></em></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="facts-sec" id="facts" aria-labelledby="factsTitle">
+  <div class="facts-copy">
+    <h2 id="factsTitle" class="sec-title">价格和优惠，只写你填的</h2>
+    <p class="sec-lede">改一下价格试试，海报立刻跟着变。优惠留空，画面上就不会出现优惠。</p>
+    <label class="field"><span>售价（元）</span><input id="fPrice" inputmode="decimal" value="18"></label>
+    <label class="field"><span>活动（可不填）</span><input id="fOffer" maxlength="24" placeholder="例如：周一到周五第二杯半价"></label>
+    <h3 class="ai-key-title">AI 写的话，你来决定留不留</h3>
+    <p class="sample-copy" id="factsCopy"></p>
+    <p class="fine">蓝色虚线是 AI 补充、尚未确认的描述。点一下保留；不保留的不会进入导出文案。</p>
+  </div>
+  <div class="facts-poster"><canvas id="factsPoster" width="810" height="1080" aria-label="跟随输入实时更新的竖版海报"></canvas></div>
+</section>
+
+<section class="close-sec">
+  <h2 class="sec-title">下一杯，让它先被看见。</h2>
+  <a class="btn btn-primary" href="#studio"><span>上传商品照</span></a>
+  <footer class="foot">
+    <p>尺寸按公开资料预设，上传时请以商家后台提示为准。Café Brief 不保证通过平台审核，也不代表任何平台。</p>
+    <p>本页展示图由浏览器示意合成，店名和商品均为虚构。上传照片后的真实成品由豆包模型生成。</p>
+  </footer>
+</section>
+</div>
+
+<!-- 工作台 -->
+<div id="studio" class="studio" data-only="studio" data-phase="empty">
+  <section class="stage" aria-label="画布">
+    <div class="stage-frame" id="stageFrame">
+      <canvas id="stageCanvas" width="1080" height="1440" aria-label="当前画面预览"></canvas>
+      <button class="drop" id="drop" type="button"><b>把商品照拖到这里</b><span>或点击选择。JPG、PNG、WebP，10 MB 以内</span></button>
+      <div class="gen-veil" id="genVeil" aria-hidden="true"></div>
+      <span class="stage-note" id="stageNote"></span>
+      <button class="hold" id="holdCompare" type="button" hidden>按住看原片</button>
+    </div>
+    <ul class="strip" id="strip" aria-label="这一套的所有尺寸"></ul>
+  </section>
+
+  <section class="rail" aria-label="设置">
+    <div class="pane" id="paneBrief">
+      <h1 class="pane-title">这杯要怎么卖？</h1>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <p class="photo-msg" id="photoMsg" role="status"></p>
+      <label class="field"><span>商品名</span><input id="iName" maxlength="24" autocomplete="off" placeholder="例如：冰奶油拿铁"></label>
+      <div class="field-row">
+        <label class="field"><span>售价（元）</span><input id="iPrice" inputmode="decimal" placeholder="18"></label>
+        <label class="field"><span>店名（可不填）</span><input id="iShop" maxlength="16" placeholder="拾叶咖啡"></label>
+      </div>
+      <label class="field"><span>活动（可不填，只写真实活动）</span><input id="iOffer" maxlength="24" placeholder="不填就不出现优惠"></label>
+      <label class="field"><span>卖点（可不填，用逗号隔开）</span><input id="iHigh" maxlength="120" placeholder="例如：燕麦奶，现磨豆"></label>
+      <p class="field-err" id="briefErr" role="alert"></p>
+      <div class="dial-host" data-dial="studio"></div>
+      <fieldset class="scenes"><legend>场景</legend><div id="scenes"></div></fieldset>
+      <p class="fine">生成一次用掉 1 次，约需 1～2 分钟；改文字不扣次数。照片和文字会发送给豆包模型用于生成。</p>
+      <div class="cta-dock"><button class="btn btn-primary btn-wide" id="go" type="button"><span>一键包装</span></button></div>
+    </div>
+
+    <div class="pane" id="paneGen" hidden>
+      <h1 class="pane-title">正在包装</h1>
+      <ol class="steps" id="steps" aria-live="polite"></ol>
+      <p class="fine" id="genNote">通常需要 1～2 分钟，请不要关闭页面。</p>
+      <button class="btn btn-ghost btn-wide" id="cancel" type="button"><span>取消</span></button>
+    </div>
+
+    <div class="pane" id="paneResult" hidden>
+      <h1 class="pane-title" id="resTitle"></h1>
+      <p class="sheet-spec" id="resSpec"></p>
+      <div class="seg seg-wide" role="radiogroup" aria-label="这张图用哪个版本">
+        <label><input type="radio" name="fid" value="scene" checked><span>AI 场景</span></label>
+        <label><input type="radio" name="fid" value="raw"><span>原片版</span></label>
+      </div>
+      <p class="fid-note" id="fidNote"></p>
+      <div class="ver-row"><div class="vers" id="vers" role="group" aria-label="历史版本"></div><button class="btn btn-small btn-ghost" id="again" type="button"><span>再来一版</span></button></div>
+
+      <label class="confirm" id="confirmRow"><input type="checkbox" id="cupOk"><span>杯型、配料和分量都和我实际卖的一样</span></label>
+
+      <details class="copy-box" open>
+        <summary>上架文案</summary>
+        <p class="sample-copy" id="resCopy"></p>
+        <p class="fine" id="copyNote"></p>
+        <div class="copy-actions"><button class="btn btn-small btn-ghost" id="copyBtn" type="button"><span>复制文案</span></button></div>
+      </details>
+
+      <div class="cta-dock">
+        <button class="btn btn-primary btn-wide" id="exportAll" type="button"><span>下载全部</span></button>
+        <p class="export-hint" id="exportHint" role="status"></p>
+      </div>
+      <div class="res-more">
+        <button class="btn btn-text" id="exportOne" type="button"><span>只下载这张</span></button>
+        <button class="btn btn-text" id="showPhone" type="button"><span>放进手机看</span></button>
+        <button class="btn btn-text" id="restart" type="button"><span>改信息重新包装</span></button>
+      </div>
+    </div>
+
+    <div class="pane pane-error" id="paneError" hidden>
+      <h1 class="pane-title" id="errTitle"></h1>
+      <p id="errBody"></p>
+      <button class="btn btn-primary btn-wide" id="errRetry" type="button"><span>重新包装</span></button>
+      <button class="btn btn-text" id="errBack" type="button"><span>回去改信息</span></button>
+    </div>
+  </section>
+
+</div>
+</main>
+
+<dialog class="tray" id="unlock" aria-labelledby="ulTitle">
+  <form method="dialog" id="ulForm">
+    <h2 id="ulTitle">免费次数用完了</h2>
+    <p>输入解锁密码，就能继续生成，不再限次数。已生成的图不受影响，随时能下载。</p>
+    <label class="field"><span>解锁密码</span><input id="ulPwd" type="password" autocomplete="off" aria-describedby="ulErr"></label>
+    <p class="field-err" id="ulErr" role="alert"></p>
+    <button class="btn btn-primary btn-wide" id="ulGo" type="submit" value="go"><span>解锁</span></button>
+    <button class="btn btn-text" type="button" id="ulClose"><span>先不解锁</span></button>
+  </form>
+</dialog>
+
+<dialog class="tray tray-phone" id="phoneDlg" aria-labelledby="pdTitle">
+  <h2 id="pdTitle">放进手机看</h2>
+  <div class="phone phone-mini"><div class="phone-screen"><canvas id="pdBanner" width="720" height="240"></canvas><div class="ph-row is-you"><canvas id="pdThumb" width="400" height="300"></canvas><div><b id="pdName"></b><small id="pdShop"></small><em id="pdPrice"></em></div></div><div class="ph-row"><i></i><div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div></div></div></div>
+  <p class="fine">手机界面为示意，不是平台真实页面。</p>
+  <button class="btn btn-ghost btn-wide" id="pdClose" type="button"><span>关闭</span></button>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="assets/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

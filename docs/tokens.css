@@ -1,0 +1,67 @@
+/* Café Brief 设计令牌。工程可直接引入。所有语义色由 data-roast 决定，组件内不要写死色值。
+   对比度已用 WCAG 公式核算，结果见 ux-spec.md 第 5 节。 */
+@font-face {
+  font-family: "CB Display";
+  src: url("assets/SmileySans-Oblique.ttf.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  /* 字体 */
+  --font-display: "CB Display", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-ui: "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  /* 字号，手机 / 桌面在组件里用 clamp 取值。输入框不得低于 16px，否则 iOS 聚焦时会缩放页面 */
+  --fs-12: .75rem;
+  --fs-14: .875rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --fs-22: 1.375rem;
+  --fs-30: 1.875rem;
+  --fs-40: 2.5rem;
+  --fs-56: 3.5rem;
+  --fs-hero: clamp(4rem, 15.5vw, 13.5rem);
+  --fs-section: clamp(2.5rem, 7vw, 5.5rem);
+
+  /* 间距，4 基数 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 72px;
+  --s-9: 112px;
+  --s-10: 168px;
+  --gutter: clamp(16px, 4vw, 48px);
+
+  /* 圆角分层：纸面最硬、控件中等、胶囊只给主操作和托盘 */
+  --r-sheet: 2px;
+  --r-control: 10px;
+  --r-tray: 20px;
+  --r-pill: 999px;
+
+  /* 动效 */
+  --t-fast: 120ms;
+  --t-base: 240ms;
+  --t-slow: 420ms;
+  --t-roast: 520ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-pour: cubic-bezier(.3, .7, .2, 1);
+
+  /* 尺寸 */
+  --tap: 44px;
+  --btn-h: 56px;
+}
+
+/* 烘焙度：五档完整替换语义色，不是单一渐变滑动。避开了对比度不足的中间值 */
+[data-roast="1"] { --bg: #EBD3AC; --bg-2: #E0C393; --field: #F4E4C9; --ink: #2A1407; --soft: #5A3517; --line: #2A140740; --ai: #0B4F78; --err: #8A1C08; --on-ink: #EBD3AC; --plate-wall: #EFDCBE; --plate-floor: #D9BC8D; --plate-ink: #2A1407; }
+[data-roast="2"] { --bg: #CC8E48; --bg-2: #BC7E39; --field: #DBA263; --ink: #1C0C03; --soft: #37200C; --line: #1C0C0350; --ai: #06324F; --err: #5A0F02; --on-ink: #E6B478; --plate-wall: #D59A58; --plate-floor: #B4763A; --plate-ink: #1C0C03; }
+[data-roast="3"] { --bg: #8A4819; --bg-2: #7A3D12; --field: #9B5726; --ink: #FFF5E6; --soft: #F7DDBC; --line: #FFF5E650; --ai: #CDEBFA; --err: #FFD2C2; --on-ink: #6E340C; --plate-wall: #94511F; --plate-floor: #6B350F; --plate-ink: #FFF5E6; }
+[data-roast="4"] { --bg: #552A10; --bg-2: #47220C; --field: #673718; --ink: #FFF5E6; --soft: #E9CBA6; --line: #FFF5E640; --ai: #BCE4F8; --err: #FFB8A1; --on-ink: #47220C; --plate-wall: #5E3013; --plate-floor: #3B1C09; --plate-ink: #FFF5E6; }
+[data-roast="5"] { --bg: #24120A; --bg-2: #1A0C06; --field: #35200F; --ink: #FFF3E2; --soft: #CFB08C; --line: #FFF3E238; --ai: #AEDDF5; --err: #FFA88E; --on-ink: #24120A; --plate-wall: #2C170C; --plate-floor: #150904; --plate-ink: #FFF3E2; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 1ms; --t-base: 1ms; --t-slow: 1ms; --t-roast: 1ms; }
+}
