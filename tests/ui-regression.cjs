@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const {fit,Asset}=require('../docs/studio.js');
+const ctx={font:'',measureText(t){return {width:[...t].length*parseInt(this.font)*.6}}};
+const plan=fit(ctx,'Weekdays only · 10% off',950,180,36,22);
+assert.equal(plan.lines.join(''),'Weekdays only · 10% off');
+assert.equal(fit(ctx,'X'.repeat(2000),950,180,58,24),null);
+assert.ok(fit(ctx,'Long product name '.repeat(5),950,150,38,22));
+(async()=>{const resolvers={},closed=[];const a=new Asset();const decode=f=>new Promise((r,j)=>resolvers[f]={r,j});
+const p=a.load('old',decode),q=a.load('new',decode);
+resolvers.new.r({close:()=>closed.push('new')});await q;
+resolvers.old.r({close:()=>closed.push('old')});assert.equal(await p,false);assert.deepEqual(closed,['old']);
+const z=a.load('bad',decode);assert.deepEqual(closed,['old','new']);resolvers.bad.j(Error('decode'));await assert.rejects(z);assert.equal(a.bitmap,null);assert.equal(a.loading,false);
+await a.load(null,decode);assert.equal(a.bitmap,null);assert.equal(a.loading,false);
+console.log('PASS layout completeness/overflow, reversed image decode, release, failure, clear (Node unit tests; not browser)');
+})().catch(e=>{console.error(e);process.exitCode=1});
