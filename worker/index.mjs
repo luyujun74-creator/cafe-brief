@@ -120,12 +120,16 @@ async function analyzeOnce(facts,env,fetchImpl,extra) {
     style?('本次风格倾向：'+style+'。不得因此添加事实之外的承诺。'):''
   ].filter(Boolean).join('\n');
   const payload=Object.assign({shop:facts.shop,product:facts.product,price:facts.price,platform:facts.platform,image_description:extra&&isText(extra.image_description,600)?extra.image_description.trim():''},points.length?{confirmed_points:points}:{});
-  const body={model:env.ARK_MODEL,temperature:0.6,max_tokens:900,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(payload)+'\n\n'+instruction}]};
+  const body={model:env.ARK_MODEL,temperature:0.6,max_tokens:900,thinking:{type:'disabled'},messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(payload)+'\n\n'+instruction}]};
   try { body.response_format={type:'json_object'}; } catch {}
   let response;
   try { response=await fetchImpl(MODEL_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+env.ARK_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)}); }
-  catch { throw Error('MODEL_NETWORK'); }
-  if(!response.ok) throw Error('MODEL_NETWORK');
+  catch(e) { console.error('text_fetch_failed',e&&e.name); throw Error('MODEL_NETWORK'); }
+  if(!response.ok) {
+    let code='';try{code=(await response.json())?.error?.code||'';}catch{}
+    console.error('text_upstream',response.status,String(code).slice(0,60));
+    throw Error('MODEL_NETWORK');
+  }
   let raw;
   try { raw=await response.json(); } catch { throw Error('MODEL_FORMAT'); }
   const plan=parseAnalyze(raw,facts,points);
@@ -291,14 +295,18 @@ async function generateScene(facts,image,env,fetchImpl,visitor,analysis,options)
   try {
     response=await fetchImpl(IMAGE_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+env.ARK_API_KEY},
       body:JSON.stringify({model:env.ARK_IMAGE_MODEL,prompt,image,size:'2K',response_format:'url',watermark:false}),
-      signal:AbortSignal.timeout(170000)});
-  } catch { throw Error('IMAGE_NETWORK'); }
-  if(!response.ok) throw Error('IMAGE_NETWORK');
+      signal:AbortSignal.timeout(155000)});
+  } catch(e) { console.error('image_fetch_failed',e&&e.name); throw Error('IMAGE_NETWORK'); }
+  if(!response.ok) {
+    let code='';try{code=(await response.json())?.error?.code||'';}catch{}
+    console.error('image_upstream',response.status,String(code).slice(0,60));
+    throw Error('IMAGE_NETWORK');
+  }
   let source;
   try { source=(await response.json()).data[0].url; } catch { throw Error('IMAGE_FORMAT'); }
   let target;
   try { target=new URL(source); } catch { throw Error('IMAGE_FORMAT'); }
-  if(target.protocol!=='https:'||!allowedImageHost(target.hostname))throw Error('IMAGE_FORMAT');
+  if(target.protocol!=='https:'||!allowedImageHost(target.hostname)){console.error('image_host_rejected',target.hostname);throw Error('IMAGE_FORMAT');}
   const id=crypto.randomUUID();
   await env.DB.prepare('INSERT INTO rendered_images (id,source,visitor,expires_at) VALUES (?,?,?,?)').bind(id,source,visitor,Date.now()+60*60000).run();
   return {scene_url:'/api/rendered-image?id='+id, external_ttl_minutes:60, image_generated:true};
@@ -472,6 +480,7 @@ const handlers = {
       }
       return json(Object.assign({},output,{remaining:null,unlimited:true}));
     }catch(e){
+      console.error('generation_failed',e&&e.message);
       if(reservation){try{await release(env.DB,visitor,reservation.lease_until);}catch{return error('QUOTA_REPAIR_REQUIRED','模型失败，处理锁暂时无法清除，约两分钟后可重试',503);}}
       if(e&&e.message==='SERVER_CONFIG')return error('SERVER_CONFIG','服务尚未配置',503);
       return error('MODEL_FAILED','模型生成失败，本次不计次数',502);
