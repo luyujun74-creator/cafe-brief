@@ -34,8 +34,8 @@ def audit(text,facts):
         pattern=r"(?P<currency>USD|GBP|EUR|AUD|[$£€])\s*(?P<raw>[+\-(0-9][0-9.,' +\-()]*)"
         for m in re.finditer(pattern,value,re.I):
             raw=m['raw'].strip()
-            # A sentence-ending period is punctuation, not another decimal.
-            if raw.endswith('.'): raw=raw[:-1]
+            # Trailing sentence punctuation is not part of the amount.
+            raw=re.sub(r"[\s.,'+\-()]+$",'',raw)
             currency=m['currency'].upper()
             normalized=re.sub(r'^([+-])\s+',r'\1',raw)
             valid=re.fullmatch(r"[+\-]?(?:[0-9]+|[0-9]{1,3}(?P<sep>[, '])[0-9]{3}(?:(?P=sep)[0-9]{3})*)(?:\.[0-9]{1,2})?",normalized)

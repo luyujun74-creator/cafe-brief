@@ -5,7 +5,15 @@ function fit(ctx,text,width,height,max,min){
     for(const ch of text){
       if(ch==='\n'){lines.push('');continue;}
       if(ctx.measureText(ch).width>width){valid=false;break;}
-      if(ctx.measureText(lines.at(-1)+ch).width>width)lines.push('');
+      const line=lines.at(-1);
+      if(ctx.measureText(line+ch).width>width){
+        if(ch===' '){lines.push('');continue;}
+        const space=line.lastIndexOf(' '),tail=line.slice(space+1);
+        // Move the whole word down; only a word wider than the line breaks mid-word.
+        if(space>0&&ctx.measureText(tail+ch).width<=width){lines[lines.length-1]=line.slice(0,space);lines.push(tail+ch);}
+        else lines.push(ch);
+        continue;
+      }
       lines[lines.length-1]+=ch;
     }
     if(valid&&lines.length*size*1.25<=height)return {size,lines};

@@ -18,19 +18,23 @@ function draw(){
   ['活动条件',f?.offer||'',65,1110,950,175,30,22]
  ];let errors=[];ctx.fillStyle='#fbfaf6';
  for(const [name,text,x,y,w,h,max,min] of sections){const plan=Studio.fit(ctx,text,w,h,max,min);if(!plan){errors.push(name+'无法完整呈现，请缩短后再导出');continue;}ctx.font=`${plan.size}px Georgia`;plan.lines.forEach((line,i)=>ctx.fillText(line,x,y+plan.size+i*plan.size*1.25));}
- ctx.font='18px sans-serif';ctx.fillText(result?.mode==='live'?'AI text / photo layout / human review required':'Template demo / photo layout / human review required',65,1325);
+ ctx.font='18px sans-serif';ctx.fillText(result&&result.mode!=='demo'?'AI text / photo layout / human review required':'Template demo / photo layout / human review required',65,1325);
  layoutOK=errors.length===0;$('layout').textContent=errors.length?errors.join('；'):'海报全部文字已通过测量排版；请继续核对事实与条件。';gate();
 }
-const SECRET_FIELDS=['apiUrl','apiModel','apiKey'];
-function modelConfig(){return {endpoint:$('apiUrl').value.trim(),model:$('apiModel').value.trim(),key:$('apiKey').value.trim()};}
+const SECRET_FIELDS=['apiUrl','apiModel','apiKey','chatReply'];
+function formData(){return Object.fromEntries(new FormData(form));}
+function refreshPrompt(){try{$('chatPrompt').value=CafeEngine.chatPrompt(formData());}catch(e){$('chatPrompt').value='请先补全左侧信息：'+e.message;}}
+function updateMode(mode){$('liveConfig').hidden=mode!=='live';$('freeNote').hidden=mode!=='free';$('chatConfig').hidden=mode!=='chat';$('generate').textContent=mode==='chat'?'检查并导入回复':'生成创意草稿';if(mode==='chat')refreshPrompt();}
+async function copy(text,field){try{await navigator.clipboard.writeText(text);return true;}catch{field.select();return false;}}
+function modelConfig(){return {endpoint:$('apiUrl').value.trim(),model:$('apiModel').value.trim(),key:$('apiKey').value.trim(),chatReply:$('chatReply').value};}
 function api(path,data){return CafeEngine.handle(path,data,path==='generate'?modelConfig():undefined);}
 async function check(){if(!result||asset.loading)return false;const v=revision,r=current();invalidate();const a=await api('audit',r);if(!same(v)||!result)return false;result.flags=a.flags;auditId=a.audit_id;$('flags').replaceChildren();for(const s of a.flags.length?a.flags:['规则未发现异常；仍需人工复核。']){const li=document.createElement('li');li.textContent=s;$('flags').append(li);}checked=true;gate();return true;}
-form.addEventListener('input',e=>{if(e.target.id==='photo'||SECRET_FIELDS.includes(e.target.id))return;if(e.target.name==='mode')$('liveConfig').hidden=e.target.value!=='live';changed();result=null;$('headline').value='';$('results').hidden=true;$('badge').textContent='事实已修改 · 请重新生成';draw();});
+form.addEventListener('input',e=>{if(e.target.id==='photo'||SECRET_FIELDS.includes(e.target.id))return;if(e.target.name==='mode')updateMode(e.target.value);else if(form.elements?.mode?.value==='chat')refreshPrompt();changed();result=null;$('headline').value='';$('results').hidden=true;$('badge').textContent='事实已修改 · 请重新生成';draw();});
 form.addEventListener('submit',async e=>{
- e.preventDefault();if(busy||asset.loading)return;changed();const v=revision;busy=true;gate();$('generate').disabled=true;$('status').textContent='正在处理；真实模式最多三次调用…';
- try{const r=await api('generate',Object.fromEntries(new FormData(form)));if(!same(v))return;
+ e.preventDefault();if(busy||asset.loading)return;changed();const v=revision;busy=true;gate();$('generate').disabled=true;$('status').textContent='正在处理；调用模型时最多三次，可能需要约一分钟…';
+ try{const r=await api('generate',formData());if(!same(v))return;
  if(!r.facts){$('status').textContent=(r.questions||['需要人工处理']).join('；');return;}
- result=r;$('badge').textContent=r.label;$('headline').value=r.headline;$('caption').value=r.caption;$('shots').replaceChildren();r.shots.forEach((s,i)=>{const label=document.createElement('label');label.textContent=`${i*5}–${(i+1)*5} 秒`;const area=document.createElement('textarea');area.value=s;area.maxLength=1000;label.append(area);$('shots').append(label);});$('results').hidden=false;$('trace').textContent=JSON.stringify({status:r.status,call_count:r.call_count,elapsed_ms:r.elapsed_ms,trace:r.trace},null,2);draw();
+ result=r;$('reviseChat').hidden=r.mode!=='chat';$('badge').textContent=r.label;$('headline').value=r.headline;$('caption').value=r.caption;$('shots').replaceChildren();r.shots.forEach((s,i)=>{const label=document.createElement('label');label.textContent=`${i*5}–${(i+1)*5} 秒`;const area=document.createElement('textarea');area.value=s;area.maxLength=1000;label.append(area);$('shots').append(label);});$('results').hidden=false;$('trace').textContent=JSON.stringify({status:r.status,call_count:r.call_count,elapsed_ms:r.elapsed_ms,trace:r.trace},null,2);draw();
  const ok=await check();if(same(v)&&ok)$('status').textContent=r.status==='human_review'?'自动检查仍有问题，请人工修改或明确接受提示。':'草稿已生成，请人工核对后确认。';
  }catch(e){if(same(v)){$('status').textContent=e.message;$('trace').textContent=JSON.stringify({trace:e.trace||[],call_count:e.call_count||0},null,2);}}finally{busy=false;$('generate').disabled=false;gate();}
 });
@@ -52,4 +56,7 @@ async function download(png){
  if(same(v))$('status').textContent='已请求下载当前已审核版本。';
  }catch(e){if(same(v))$('status').textContent=e.message;}finally{busy=false;gate();}
 }
+$('copyPrompt').onclick=async()=>{refreshPrompt();$('copyPrompt').textContent=await copy($('chatPrompt').value,$('chatPrompt'))?'已复制，去网页版大模型粘贴':'已选中，请手动复制';};
+$('reviseChat').onclick=async()=>{const d=current();$('chatPrompt').value=CafeEngine.chatPrompt(formData(),{previous:{headline:d.headline,caption:d.caption,shots:d.shots},issues:result.flags});$('reviseChat').textContent=await copy($('chatPrompt').value,$('chatPrompt'))?'修订指令已复制':'已选中左侧指令，请手动复制';$('status').textContent='把修订指令发给模型，再把新回复粘贴到左侧并导入。';};
+updateMode(form.elements?.mode?.value||'demo');
 $('download').onclick=()=>download(false);$('png').onclick=()=>download(true);draw();

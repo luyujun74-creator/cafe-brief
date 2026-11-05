@@ -88,7 +88,21 @@ async function live(browser){
   assert.ok(!text.includes(SECRET),'key not exported');assert.equal(JSON.parse(text).model,'stub');
   const stored=await page.evaluate(()=>JSON.stringify([{...localStorage},{...sessionStorage},document.cookie]));assert.ok(!stored.includes(SECRET),'key not stored');
   await page.reload();assert.equal(await page.inputValue('#apiKey').catch(()=>''),'','key gone after reload');ok('live-injected-model');
-  await page.route('https://model.example.test/**',r=>r.abort());
+  await ctx.close();
+}
+async function otherModes(browser){
+  const ctx=await browser.newContext({acceptDownloads:true,permissions:['clipboard-read','clipboard-write']});const page=await ctx.newPage();
+  await page.route('https://text.pollinations.ai/**',route=>route.request().method()==='OPTIONS'?route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'*'}}):route.fulfill({status:200,headers:{'access-control-allow-origin':'*','content-type':'application/json'},body:JSON.stringify({choices:[{message:{content:JSON.stringify({headline:'Hello',caption:'Iced Latte USD 5.50.',shots:['a','b','c']})}}]})}));
+  await page.goto(BASE);
+  await page.selectOption('[name=mode]','free');assert.equal(await page.isVisible('#apiKey'),false);assert.equal(await page.isVisible('#freeNote'),true);
+  await page.click('#generate');await idle(page);assert.equal(await page.textContent('#badge'),'免费公共模型文本草稿 · 待人工复核');ok('free-injected');
+  await page.selectOption('[name=mode]','chat');assert.equal(await page.isVisible('#chatReply'),true);assert.equal(await page.textContent('#generate'),'检查并导入回复');
+  await page.click('#copyPrompt');assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/Iced Latte/);
+  await page.click('#generate');await page.waitForFunction(()=>/CHAT_EMPTY/.test(document.getElementById('status').textContent));
+  await page.fill('#chatReply','Here you go:\n```json\n{"headline":"Hi","caption":"Iced Latte USD 3.99 free","shots":["a","b","c"]}\n```');
+  await page.click('#generate');await page.waitForFunction(()=>/3\.99/.test(document.getElementById('flags').textContent));
+  assert.equal(await page.textContent('#badge'),'网页版大模型回复 · 待人工复核');
+  await page.click('#reviseChat');assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/3\.99[\s\S]*issues|issues[\s\S]*3\.99/);ok('chat-import-and-revise');
   await ctx.close();
 }
 (async()=>{
@@ -98,5 +112,6 @@ async function live(browser){
       steps.length=0;await core(name,b,o);console.log('PASS',name,steps.join(', '));
     }
     steps.length=0;await live(c);console.log('PASS live',steps.join(', '),'(model reply injected; no real API)');
+    steps.length=0;await otherModes(c);console.log('PASS other-modes',steps.join(', '),'(replies injected)');
   }finally{await c.close();await w.close();}
 })().catch(e=>{console.error('FAIL',steps.join(','),e);process.exit(1);});
