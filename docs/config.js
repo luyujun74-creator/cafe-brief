@@ -1,2 +1,2 @@
 /* 公开配置：这里只放服务地址，绝不放密钥。留空表示服务端尚未接入，页面进入示例模式。 */
-window.CB_CONFIG = { apiBase: '' };
+window.CB_CONFIG = { apiBase: 'https://cafe-brief.cafe-brief-web.workers.dev' };
