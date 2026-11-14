@@ -85,8 +85,83 @@
   async function loadScene(imageUrl) {
     const res = await fetch(apiUrl(imageUrl), { headers: authHeaders(), credentials: API_BASE ? 'omit' : 'same-origin' });
     if (!res.ok) throw new Error('IMAGE');
-    const im = new Image(); im.src = URL.createObjectURL(await res.blob()); await im.decode();
-    return im;
+    const im = new Image(), url = URL.createObjectURL(await res.blob());
+    try { im.src = url; await im.decode(); return im; }
+    finally { URL.revokeObjectURL(url); }
+  }
+  // A successful generation owns its URL; image recovery never calls a generation API.
+  let imageRecovery = null, generationTask = null, photoSelection = null;
+  function generationControls(busy) {
+    for (const id of ['#go', '#again']) {
+      $(id).disabled = busy;
+      if (busy) $(id).setAttribute('aria-busy', 'true');
+      else $(id).removeAttribute('aria-busy');
+    }
+  }
+  function cancelPhotoSelection() {
+    if (photoSelection) photoSelection.cleanup();
+    photoSelection = null;
+  }
+  function beginGeneration() {
+    // Check ownership before invalidating the run of a pending paid request.
+    if (generationTask) return null;
+    cancelPhotoSelection();
+    invalidateImageRequest();
+    const task = { run: S.run };
+    generationTask = task; generationControls(true);
+    return task;
+  }
+  function finishGeneration(task) {
+    if (generationTask !== task) return;
+    generationTask = null; generationControls(false);
+  }
+  function invalidateImageRequest() {
+    S.run++; imageRecovery = null;
+    generationTask = null; generationControls(false);
+    $('#errRetry').removeAttribute('aria-busy');
+    $('#errRetry span').textContent = '重新包装';
+  }
+  function acceptQuota(result) {
+    if (typeof result.remaining === 'number') S.remaining = result.remaining;
+    S.unlocked = !!result.unlimited;
+    updateQuota();
+  }
+  async function recoverImage(job) {
+    if (job !== imageRecovery || job.run !== S.run || job.loading) return;
+    job.loading = true;
+    $('#errRetry').setAttribute('aria-busy', 'true');
+    try {
+      const sceneImg = await loadScene(job.result.image_url);
+      if (job !== imageRecovery || job.run !== S.run) return;
+      if (job.kind === 'package') {
+        S.aiTitle = job.result.title || ''; S.aiDetail = job.result.detail || '';
+        if (Array.isArray(job.result.selling_points)) S.aiPoints = job.result.selling_points;
+        SHEETS.forEach(sd => {
+          const k = S.kit[sd.id]; k.status = 'done'; k.mode = 'scene'; k.sceneImg = sceneImg;
+          k.versions.push({ seed: k.seed, scene: k.scene, mode: 'scene', sceneImg }); k.cur = 0;
+        });
+        S.sheet = 'main';
+      } else {
+        const k = job.kit;
+        k.sceneImg = sceneImg; k.mode = 'scene';
+        k.versions.push({ seed: k.seed, scene: k.scene, mode: 'scene', sceneImg }); k.cur = k.versions.length - 1;
+      }
+      S.cupOk = false; $('#cupOk').checked = false;
+      imageRecovery = null;
+      $('#errRetry span').textContent = '重新包装';
+      setPhase('result'); updateResult(); toast('图片已加载，本次生成已计入次数');
+    } catch {
+      if (job !== imageRecovery || job.run !== S.run) return;
+      $('#errTitle').textContent = '图片已生成，但加载失败';
+      $('#errBody').textContent = '本次生成已计入次数。可以重新加载同一张图片，不会重新生成或再次扣次数。';
+      $('#errRetry span').textContent = '重新加载图片（不扣次数）';
+      setPhase('error');
+    } finally {
+      job.loading = false;
+      if (job.run === S.run) {
+        $('#errRetry').removeAttribute('aria-busy');
+      }
+    }
   }
   const sceneName = id => (SCENES.find(s => s.id === id) || SCENES[0]).name;
   function buildPayload() {
@@ -450,7 +525,7 @@
       if (k.status === 'done') render($('canvas', b), s.id, { mode: (S.live || S.isSample) ? k.mode : 'raw', seed: k.seed, scene: k.scene, facts: currentFacts(), src: S.isSample ? null : S.photo, sceneImg: k.sceneImg });
     });
   }
-  function selectSheet(id) { S.sheet = id; updateResult(); redrawStage(); drawStrip(); }
+  function selectSheet(id) { invalidateImageRequest(); S.sheet = id; updateResult(); redrawStage(); drawStrip(); }
 
   function updateResult() {
     const sp = SHEETS.find(s => s.id === S.sheet), k = S.kit[S.sheet]; if (!k) return;
@@ -463,7 +538,7 @@
     $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，会尽量保持商品原样，下载前请核对。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '只裁切和排版，商品没有被重绘。';
     $('#confirmRow').hidden = !anyAi;
     $('#vers').innerHTML = k.versions.map((v, i) => `<button type="button" data-i="${i}" aria-pressed="${i === k.cur}" aria-label="第 ${i + 1} 版">${i + 1}</button>`).join('');
-    $$('#vers button').forEach(b => b.addEventListener('click', () => { k.cur = +b.dataset.i; Object.assign(k, k.versions[k.cur]); redrawStage(); drawStrip(); updateResult(); }));
+    $$('#vers button').forEach(b => b.addEventListener('click', () => { invalidateImageRequest(); k.cur = +b.dataset.i; Object.assign(k, k.versions[k.cur]); redrawStage(); drawStrip(); updateResult(); }));
     const reason = exportBlock();
     $('#exportHint').textContent = reason;
     $('#exportHint').dataset.err = reason ? '1' : '';
@@ -483,58 +558,51 @@
 
   /* 生成模拟：顺序产出，每张独立成败 */
   async function generate() {
+    if (generationTask) return;
     const err = validate();
     if (err) { $('#briefErr').textContent = err; return; }
     $('#briefErr').textContent = '';
     if (S.live && !S.unlocked && S.remaining <= 0) return openUnlock();
-    const run = ++S.run; S.kit = {}; S.cupOk = false; $('#cupOk').checked = false; S.sheet = 'main';
-    SHEETS.forEach(sd => S.kit[sd.id] = { status: 'wait', mode: S.live ? 'scene' : 'ai', seed: 2, scene: S.scene, versions: [], cur: 0, sceneImg: null });
-    S.aiDetail = ''; S.aiTitle = ''; S.copyStale = false;
-    $('#cancel').hidden = S.live;
-    if (S.live) SHEETS.forEach(sd => { S.kit[sd.id].status = 'run'; });
-    setPhase('gen'); renderSteps();
+    const task = beginGeneration();
+    if (!task) return;
+    try {
+      const run = task.run; S.kit = {}; S.cupOk = false; $('#cupOk').checked = false; S.sheet = 'main';
+      SHEETS.forEach(sd => S.kit[sd.id] = { status: 'wait', mode: S.live ? 'scene' : 'ai', seed: 2, scene: S.scene, versions: [], cur: 0, sceneImg: null });
+      S.aiDetail = ''; S.aiTitle = ''; S.copyStale = false;
+      $('#cancel').hidden = S.live;
+      if (S.live) SHEETS.forEach(sd => { S.kit[sd.id].status = 'run'; });
+      setPhase('gen'); renderSteps();
 
-    if (S.live) {
-      let result, sceneImg;
-      try {
-        result = await apiPost('/api/package', buildPayload());
-        if (typeof result.remaining === 'number') { S.remaining = result.remaining; updateQuota(); }
-        try { sceneImg = await loadScene(result.image_url); }
-        catch { await new Promise(r => setTimeout(r, 2000)); sceneImg = await loadScene(result.image_url); }
+      if (S.live) {
+        try {
+          const result = await apiPost('/api/package', buildPayload());
+          if (run !== S.run) return;
+          acceptQuota(result);
+          imageRecovery = { run, result, kind: 'package' };
+          await recoverImage(imageRecovery);
+        } catch (e) {
+          if (run !== S.run) return;
+          if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; setPhase('ready'); return openUnlock(); }
+          if (e.code === 'RATE_LIMIT') return showError('ratelimit');
+          if (['GENERATION_BUSY', 'PUBLIC_BUDGET_EXCEEDED', 'INPUT_INVALID', 'MODEL_FAILED', 'QUOTA_REPAIR_REQUIRED'].includes(e.code)) return showError('server', e.message);
+          return showError('network');
+        }
+        return;
       }
-      catch (e) {
-        if (run !== S.run) return;
-        if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; setPhase('ready'); return openUnlock(); }
-        if (e.code === 'RATE_LIMIT') return showError('ratelimit');
-        if (['GENERATION_BUSY', 'PUBLIC_BUDGET_EXCEEDED', 'INPUT_INVALID', 'MODEL_FAILED', 'QUOTA_REPAIR_REQUIRED'].includes(e.code)) return showError('server', e.message);
-        return showError('network');
-      }
-      if (run !== S.run) return;
-      S.aiTitle = result.title || ''; S.aiDetail = result.detail || '';
-      if (Array.isArray(result.selling_points)) S.aiPoints = result.selling_points;
-      SHEETS.forEach(sd => {
-        const k = S.kit[sd.id]; k.status = 'done'; k.mode = 'scene'; k.sceneImg = sceneImg;
-        k.versions.push({ seed: k.seed, scene: k.scene, mode: 'scene', sceneImg }); k.cur = 0;
-      });
-      S.remaining = typeof result.remaining === 'number' ? result.remaining : S.remaining;
-      S.unlocked = !!result.unlimited;
-      S.sheet = 'main';
-      setPhase('result'); toast('这一套做好了'); updateResult(); drawStrip();
-      return;
-    }
 
-    /* 离线示例模式：本地示意合成，不调用模型，界面明确标注 */
-    await wait(900); if (run !== S.run) return;
-    for (const sd of SHEETS) {
-      const k = S.kit[sd.id]; k.status = 'run'; drawStrip(); renderSteps();
-      await wait(reduced() ? 60 : 500); if (run !== S.run) return;
-      finishSheet(k);
-      drawStrip(); renderSteps();
-      if (!reduced()) dealIn(sd.id);
-    }
-    S.sheet = SHEETS.find(sd => S.kit[sd.id].status === 'done').id;
-    setPhase('result'); toast('示例做好了（未调用 AI 模型）');
-    updateResult();
+      /* 离线示例模式：本地示意合成，不调用模型，界面明确标注 */
+      await wait(900); if (run !== S.run) return;
+      for (const sd of SHEETS) {
+        const k = S.kit[sd.id]; k.status = 'run'; drawStrip(); renderSteps();
+        await wait(reduced() ? 60 : 500); if (run !== S.run) return;
+        finishSheet(k);
+        drawStrip(); renderSteps();
+        if (!reduced()) dealIn(sd.id);
+      }
+      S.sheet = SHEETS.find(sd => S.kit[sd.id].status === 'done').id;
+      setPhase('result'); toast('示例做好了（未调用 AI 模型）');
+      updateResult();
+    } finally { finishGeneration(task); }
   }
 
   function finishSheet(k) { k.status = 'done'; k.versions.push({ seed: k.seed, scene: k.scene, mode: k.mode }); k.cur = k.versions.length - 1; }
@@ -565,12 +633,20 @@
 
   /* 上传 */
   function takeFile(f) {
+    cancelPhotoSelection();
     const msg = $('#photoMsg'); msg.dataset.kind = '';
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) { msg.dataset.kind = 'err'; msg.textContent = '这个文件不是 JPG、PNG 或 WebP，换一张试试。'; return; }
     if (f.size > 10 * 1024 * 1024) { msg.dataset.kind = 'err'; msg.textContent = '照片超过 10 MB。压缩一下或换一张。'; return; }
+    invalidateImageRequest();
     msg.textContent = '正在读取照片…';
     const url = URL.createObjectURL(f), im = new Image();
+    let cleaned = false;
+    const selection = { cleanup() { if (!cleaned) { cleaned = true; URL.revokeObjectURL(url); } } };
+    photoSelection = selection;
     im.onload = () => {
+      selection.cleanup();
+      if (photoSelection !== selection) return;
+      photoSelection = null;
       const short = Math.min(im.naturalWidth, im.naturalHeight);
       S.photo = im; S.isSample = false; pendingFile = f;
       msg.dataset.kind = short < 800 ? 'warn' : '';
@@ -578,10 +654,16 @@
       $('#rePick').addEventListener('click', () => $('#file').click());
       setPhase('ready');
     };
-    im.onerror = () => { msg.dataset.kind = 'err'; msg.textContent = '这张照片打不开，可能已损坏。换一张试试。'; URL.revokeObjectURL(url); };
+    im.onerror = () => {
+      selection.cleanup();
+      if (photoSelection !== selection) return;
+      photoSelection = null;
+      msg.dataset.kind = 'err'; msg.textContent = '这张照片打不开，可能已损坏。换一张试试。';
+    };
     im.src = url;
   }
   function useSample() {
+    cancelPhotoSelection(); invalidateImageRequest();
     S.photo = img.photo; S.isSample = true; pendingFile = null; S.name = S.name || '冰奶油拿铁'; S.price = S.price || '18'; S.shop = S.shop || '拾叶咖啡';
     $('#iName').value = S.name; $('#iPrice').value = S.price; $('#iShop').value = S.shop; $('#iOffer').value = S.offer;
     $('#photoMsg').innerHTML = '正在用示例照片和虚构店铺。<button type="button" class="link" id="rePick">换成我的照片</button>';
@@ -678,8 +760,8 @@
   /* 绑定 */
   function mountStudio() {
     $('#scenes').innerHTML = SCENES.map(s => `<label class="chip"><input type="radio" name="scene" value="${s.id}" ${s.id === S.scene ? 'checked' : ''}><span>${s.name}</span></label>`).join('');
-    $$('input[name=scene]').forEach(i => i.addEventListener('change', () => { S.scene = i.value; redrawStage(); }));
-    const bind = (id, key) => $(id).addEventListener('input', e => { S[key] = e.target.value; if (S.aiDetail && key !== 'offer') S.copyStale = true; $('#briefErr').textContent = ''; updateGo(); redrawStage(); if (S.phase === 'result') { S.cupOk = false; $('#cupOk').checked = false; drawStrip(); updateResult(); } });
+    $$('input[name=scene]').forEach(i => i.addEventListener('change', () => { invalidateImageRequest(); S.scene = i.value; redrawStage(); }));
+    const bind = (id, key) => $(id).addEventListener('input', e => { invalidateImageRequest(); S[key] = e.target.value; if (S.aiDetail && key !== 'offer') S.copyStale = true; $('#briefErr').textContent = ''; updateGo(); redrawStage(); if (S.phase === 'result') { S.cupOk = false; $('#cupOk').checked = false; drawStrip(); updateResult(); } });
     bind('#iName', 'name'); bind('#iPrice', 'price'); bind('#iShop', 'shop'); bind('#iOffer', 'offer'); bind('#iHigh', 'high');
     const drop = $('#drop');
     drop.addEventListener('click', () => $('#file').click());
@@ -688,33 +770,40 @@
     ['dragleave', 'drop'].forEach(n => $('#stageFrame').addEventListener(n, e => { e.preventDefault(); $('#stageFrame').dataset.over = ''; }));
     $('#stageFrame').addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) takeFile(f); });
     $('#go').addEventListener('click', generate);
-    $('#cancel').addEventListener('click', () => { S.run++; setPhase('ready'); toast('已取消，没有扣次数'); });
-    $('#errRetry').addEventListener('click', () => { S.scenario = 'ok'; generate(); });
-    $('#errBack').addEventListener('click', () => setPhase('ready'));
-    $('#restart').addEventListener('click', () => setPhase('ready'));
+    $('#cancel').addEventListener('click', () => { cancelPhotoSelection(); invalidateImageRequest(); setPhase('ready'); toast('已退出等待；已完成的生成以剩余次数为准'); });
+    $('#errRetry').addEventListener('click', () => { if (imageRecovery) return recoverImage(imageRecovery); S.scenario = 'ok'; return generate(); });
+    $('#errBack').addEventListener('click', () => { cancelPhotoSelection(); invalidateImageRequest(); setPhase('ready'); });
+    $('#restart').addEventListener('click', () => { cancelPhotoSelection(); invalidateImageRequest(); setPhase('ready'); });
     $('#again').addEventListener('click', async () => {
-      const k = S.kit[S.sheet]; const b = $('#again');
-      if (S.live) {
-        b.setAttribute('aria-busy', 'true');
-        try {
-          const r = await apiPost('/api/generate-image', buildPayload());
-          const im = await loadScene(r.image_url);
-          if (typeof r.remaining === 'number') S.remaining = r.remaining;
-          updateQuota();
-          k.sceneImg = im; k.mode = 'scene'; k.versions.push({ seed: k.seed, scene: k.scene, mode: 'scene', sceneImg: im }); k.cur = k.versions.length - 1;
-          S.cupOk = false; $('#cupOk').checked = false;
-          redrawStage(); drawStrip(); updateResult(); toast('新一版做好了，用掉 1 次');
-        } catch (e) { if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; updateQuota(); openUnlock(); } else toast((e && e.code && e.message) || '这一版没做成，请稍后再试'); }
-        b.removeAttribute('aria-busy');
-        return;
-      }
-      b.setAttribute('aria-busy', 'true'); await wait(600);
-      k.seed = k.seed + 1 + Math.floor(Math.random() * 3); k.scene = SCENES[(SCENES.findIndex(sd => sd.id === k.scene) + 1) % SCENES.length].id; k.mode = 'ai';
-      k.versions.push({ seed: k.seed, scene: k.scene, mode: 'ai' }); k.cur = k.versions.length - 1;
-      S.cupOk = false; $('#cupOk').checked = false; b.removeAttribute('aria-busy');
-      redrawStage(); drawStrip(); updateResult(); toast('示例第 ' + k.versions.length + ' 版（未调用模型）');
+      const task = beginGeneration();
+      if (!task) return;
+      try {
+        const k = S.kit[S.sheet]; const b = $('#again');
+        if (S.live) {
+          const run = task.run;
+          b.setAttribute('aria-busy', 'true');
+          try {
+            const result = await apiPost('/api/generate-image', buildPayload());
+            if (run !== S.run) return;
+            acceptQuota(result);
+            imageRecovery = { run, result, kind: 'again', kit: k, sheet: S.sheet };
+            await recoverImage(imageRecovery);
+          } catch (e) {
+            if (run !== S.run) return;
+            if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; updateQuota(); openUnlock(); }
+            else toast((e && e.code && e.message) || '这一版没做成，请稍后再试');
+          }
+          return;
+        }
+        b.setAttribute('aria-busy', 'true'); await wait(600);
+        if (task.run !== S.run) return;
+        k.seed = k.seed + 1 + Math.floor(Math.random() * 3); k.scene = SCENES[(SCENES.findIndex(sd => sd.id === k.scene) + 1) % SCENES.length].id; k.mode = 'ai';
+        k.versions.push({ seed: k.seed, scene: k.scene, mode: 'ai' }); k.cur = k.versions.length - 1;
+        S.cupOk = false; $('#cupOk').checked = false; b.removeAttribute('aria-busy');
+        redrawStage(); drawStrip(); updateResult(); toast('示例第 ' + k.versions.length + ' 版（未调用模型）');
+      } finally { finishGeneration(task); }
     });
-    $$('input[name=fid]').forEach(i => i.addEventListener('change', () => { const k = S.kit[S.sheet]; const m = i.value === 'raw' ? 'raw' : (S.live ? 'scene' : 'ai'); k.mode = m; k.versions[k.cur].mode = m; redrawStage(); drawStrip(); updateResult(); }));
+    $$('input[name=fid]').forEach(i => i.addEventListener('change', () => { invalidateImageRequest(); const k = S.kit[S.sheet]; const m = i.value === 'raw' ? 'raw' : (S.live ? 'scene' : 'ai'); k.mode = m; k.versions[k.cur].mode = m; redrawStage(); drawStrip(); updateResult(); }));
     $('#cupOk').addEventListener('change', e => { S.cupOk = e.target.checked; updateResult(); });
     $('#exportAll').addEventListener('click', exportAll);
     $('#exportOne').addEventListener('click', async () => { const r = exportBlock(); if (r) return toast(r); save(await sheetBlob(S.sheet), fname(S.sheet)); toast(`已下载${SHEETS.find(s => s.id === S.sheet).name}`); });
