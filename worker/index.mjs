@@ -117,7 +117,7 @@ async function analyzeOnce(facts,env,fetchImpl,extra) {
     'detail: 美团/店铺详情文案，不超过200字，必须包含商品名；只能使用下面的事实与已确认卖点，不得新增数字、优惠或功效。',
     'selling_points: 从“已确认卖点”里逐字挑选最多3条原文；已确认卖点为空时必须返回空数组，不得自创。',
     'visual_plan: 不超过300字，描述背景、光线、构图、色调、氛围的视觉方案。',
-    'image_prompt: 给图像模型的中文指令，要求以参考照片中的真实商品为绝对主体，严格保持杯型/颜色/配料/份量/包装，不添加或删减商品，不出现任何文字、数字、价格、logo、标签或促销元素，商业摄影质感。',
+    'image_prompt: 给图像模型的中文指令，要求以参考照片中的真实商品为绝对主体，严格保持杯型/颜色/配料/份量/包装，不添加或删减商品；必须使用中景完整构图（完整露出杯口、杯身、杯底，以及原图中已有且属于商品组合的配件；保留充足的四周背景，避免近景特写或裁切商品边缘），不出现任何文字、数字、价格、logo、标签或促销元素，商业摄影质感。',
     points.length?('已确认卖点（只能逐字选用）：'+points.join('、')):'已确认卖点：无（selling_points 必须为空数组）。',
     style?('本次风格倾向：'+style+'。不得因此添加事实之外的承诺。'):''
   ].filter(Boolean).join('\n');
@@ -289,6 +289,7 @@ async function generateScene(facts,image,env,fetchImpl,visitor,analysis,options)
   const points=approvedPoints(facts);
   const parts=[];
   parts.push(analysis&&analysis.image_prompt||'以参考照片中的真实商品为绝对主体，严格保持杯型、颜色、配料、份量和包装不变，不添加或删减商品，只重新设计背景、光线和构图，商业摄影质感。');
+  parts.push('构图要求：采用中景，完整呈现整个商品与原图中属于商品组合的配件，顶部和底部保留清楚的背景余量。保留原有杯口、杯底和杯碟轮廓，避免近景特写。仅在原图已有时保留吸管、奶泡或配件。');
   if(points.length)parts.push('商家确认的优先卖点：'+points.join('、')+'。');
   if(style)parts.push('整体视觉风格倾向：'+style+'。仍须严格保持商品本身不变，仅调整背景、光线、色调与氛围。');
   parts.push('再次强调：画面中不得出现任何文字、数字、价格、logo、标签或促销元素。');

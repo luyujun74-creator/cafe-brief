@@ -40,7 +40,7 @@
   const S = {
     roast: 4, scene: 'seam', name: '', price: '', offer: '', shop: '', high: '', photo: null, isSample: false,
     phase: 'empty', sheet: 'main', previewSheet: 'poster', remaining: null, engine: 'ready', draftRevision: 0, lateResults: [], unlocked: false, scenario: 'ok', cupOk: false, tries: 0,
-    live: false, aiTitle: '', aiDetail: '', aiPoints: [],
+    fitMode: 'contain', live: false, aiTitle: '', aiDetail: '', aiPoints: [],
     kit: {}, claims: { c1: false, c2: false }, run: 0, view: 'studio',
   };
   const SCENE_URLS = Object.fromEntries(['seam','wood','stone','window'].map(id => [id, 'assets/scene-' + id + '.webp']));
@@ -338,7 +338,7 @@
     return [n.slice(0, a), n.slice(a)];
   }
 
-  function textLayer(ctx, w, h, sp, f, t, layout, photographic = false) {
+  function textLayer(ctx, w, h, sp, f, t, layout, photographic = false, splitBanner = false) {
     const issues = [];
     if (photographic) {
       const dark = Number(S.roast) >= 3;
@@ -370,9 +370,11 @@
       if (price) { ctx.font = `700 ${Math.round(h * .17)}px ${DISPLAY_FONT}`; ctx.fillText(price, m, h * .72); }
       const sub = [f.shop, f.offer].filter(Boolean).join(' · ');
       if (sub) {
-        const fit = fitFont(ctx, sub, w * .55, Math.round(h * .085), Math.round(h * .05), '500');
+        const maxWidth = w * (splitBanner ? .48 : .55);
+        const fit = fitFont(ctx, sub, maxWidth, Math.round(h * .085), Math.round(h * .05), '500');
         if (!fit.ok) issues.push('活动文字太长，Banner 放不下');
-        ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; ctx.fillText(sub, m, h * .88);
+        ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; if (splitBanner) ctx.fillText(sub, m, h * .88, maxWidth);
+        else ctx.fillText(sub, m, h * .88);
       }
     }
     return issues;
@@ -396,12 +398,33 @@
 
   /** 把一张规格画到 canvas。mode: ai 为示意场景；raw 只用原片，不重绘商品 */
   const renderCache = new WeakMap();
+  function drawPosterHeader(ctx, w, h, f, t, compact = false) {
+    const m = w * .07;
+    ctx.fillStyle = t.ink; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    const name = f.name || '商品名';
+    const issues = [];
+    if (f.shop) {
+      ctx.font = `600 ${Math.round(w * .034)}px ${DISPLAY_FONT}`;
+      ctx.fillText(f.shop, m, compact ? h * .055 : (m + w * .02));
+    }
+    const startFs = compact ? Math.round(w * .115) : Math.round(w * .12);
+    const fit = fitFont(ctx, name, w * .86, startFs, Math.round(w * .058));
+    if (!fit.ok) issues.push('商品名太长，海报放不下');
+    ctx.font = `700 ${fit.size}px ${DISPLAY_FONT}`;
+    ctx.fillText(name, m, compact ? (f.shop ? h * .148 : h * .128) : h * .25);
+    return issues;
+  }
   function render(canvas, spId, opt = {}) {
     if (!canvas) return [];
     const sp = SHEETS.find(s => s.id === spId);
     const rect = canvas.getBoundingClientRect?.();
-    if(rect?.width > 0 && canvas.isConnected) {const width=Math.round(rect.width*Math.min(2,window.devicePixelRatio||1)); if(canvas.width!==width) {canvas.width=width;canvas.height=Math.round(width*sp.h/sp.w);}}
-    const key=JSON.stringify([spId,canvas.width,canvas.height,S.roast,photoRevision,S.draftRevision,opt.mode,opt.seed,opt.scene,opt.facts]);
+    if (!opt.fixedSize && rect?.width > 0 && canvas.isConnected) {
+      const width = Math.round(rect.width * Math.min(2, window.devicePixelRatio || 1));
+      const height = Math.round(width * sp.h / sp.w);
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    }
+    const fit = opt.fit || S.fitMode || 'contain';
+    const key=JSON.stringify([spId,canvas.width,canvas.height,S.roast,photoRevision,S.draftRevision,fit,opt.mode,opt.seed,opt.scene,opt.facts]);
     const cached=renderCache.get(canvas);if(cached?.key===key && cached.image===opt.sceneImg)return cached.issues;
     const o = Object.assign({ mode: 'ai', seed: 1, scene: S.scene, facts: S, src: null }, opt);
     const ctx = canvas.getContext('2d'); const w = canvas.width, h = canvas.height; const t = tokens();
@@ -410,9 +433,22 @@
     if (o.mode === 'scene' && o.sceneImg) {
       const spic = o.sceneImg;
       const iw = spic.naturalWidth || spic.width, ih = spic.naturalHeight || spic.height;
-      cover(ctx, spic, iw, ih, 0, 0, w, h);
-      if (sp.text) issues = textLayer(ctx, w, h, sp, o.facts, t, 'behind');
-      if (sp.id === 'poster') issues = issues.concat(posterFoot(ctx, w, h, o.facts, t));
+      if (fit === 'cover') {
+        cover(ctx, spic, iw, ih, 0, 0, w, h);
+        if (sp.text) issues = textLayer(ctx, w, h, sp, o.facts, t, 'behind', true);
+        if (sp.id === 'poster') issues = issues.concat(posterFoot(ctx, w, h, o.facts, t, true));
+      } else if (sp.id === 'banner') {
+        drawAmbientBackdrop(ctx, spic, iw, ih, 0, 0, w, h, Number(S.roast) >= 3 ? 'rgba(20,15,12,.76)' : 'rgba(255,252,245,.86)');
+        drawFramedPhoto(ctx, spic, iw, ih, w * .56, h * .06, w * .415, h * .88, { fit: 'contain', skipAmbient: true });
+        issues = textLayer(ctx, w, h, sp, o.facts, t, 'behind', false, true);
+      } else if (sp.id === 'poster') {
+        drawAmbientBackdrop(ctx, spic, iw, ih, 0, 0, w, h, Number(S.roast) >= 3 ? 'rgba(20,15,12,.74)' : 'rgba(255,252,245,.84)');
+        drawFramedPhoto(ctx, spic, iw, ih, w * .05, h * .195, w * .90, h * .60, { fit: 'contain', skipAmbient: true });
+        issues = drawPosterHeader(ctx, w, h, o.facts, t, true);
+        issues = issues.concat(posterFoot(ctx, w, h, o.facts, t, false));
+      } else {
+        drawFramedPhoto(ctx, spic, iw, ih, 0, 0, w, h, { fit: 'contain' });
+      }
       renderCache.set(canvas,{key,image:opt.sceneImg,issues}); return issues;
     }
     const useCut = o.mode === 'ai' && !o.src;
@@ -428,17 +464,17 @@
       if (!pw || !ph) { renderCache.set(canvas,{key,image:opt.sceneImg,issues}); return issues; }
       if (sp.text) {
         ctx.fillStyle = t.wall; ctx.fillRect(0, 0, w, h);
-        if (sp.id === 'banner') { cover(ctx, pic, pw, ph, w * .62, 0, w * .38, h); }
-        else { cover(ctx, pic, pw, ph, 0, h * .3, w, h * .46); }
-        issues = textLayer(ctx, w, h, Object.assign({}, sp), o.facts, t, sp.id === 'poster' ? 'top' : 'behind');
-        if (sp.id === 'poster') {
-          ctx.fillStyle = t.ink;
-          const m = w * .07, fit = fitFont(ctx, o.facts.name || '商品名', w * .86, Math.round(w * .12), Math.round(w * .06));
-          if (!fit.ok) issues.push('商品名太长，海报放不下');
-          ctx.font = `700 ${fit.size}px ${DISPLAY_FONT}`; ctx.fillText(o.facts.name || '商品名', m, h * .25);
+        if (sp.id === 'banner') {
+          drawFramedPhoto(ctx, pic, pw, ph, w * .58, h * .05, w * .40, h * .90, { fit, skipAmbient: fit === 'contain' });
+          issues = textLayer(ctx, w, h, Object.assign({}, sp), o.facts, t, 'behind');
+        } else {
+          drawFramedPhoto(ctx, pic, pw, ph, w * .05, h * .195, w * .90, h * .60, { fit, skipAmbient: fit === 'contain' });
+          issues = drawPosterHeader(ctx, w, h, o.facts, t, true);
           issues = issues.concat(posterFoot(ctx, w, h, o.facts, t));
         }
-      } else cover(ctx, pic, pw, ph, 0, 0, w, h);
+      } else {
+        drawFramedPhoto(ctx, pic, pw, ph, 0, 0, w, h, { fit });
+      }
     }
     renderCache.set(canvas,{key,image:opt.sceneImg,issues}); return issues;
   }
@@ -446,6 +482,64 @@
     if (!pw || !ph) return;
     const s = Math.max(w / pw, h / ph), sw = w / s, sh = h / s;
     ctx.drawImage(pic, (pw - sw) / 2, (ph - sh) / 2, sw, sh, x, y, w, h);
+  }
+  function containRect(pw, ph, x, y, w, h) {
+    if (!pw || !ph) return { dx: x, dy: y, dw: w, dh: h };
+    const s = Math.min(w / pw, h / ph), dw = pw * s, dh = ph * s;
+    return { dx: x + (w - dw) / 2, dy: y + (h - dh) / 2, dw, dh };
+  }
+  function drawAmbientBackdrop(ctx, pic, pw, ph, x, y, w, h, scrim) {
+    if (typeof ctx.save === 'function') ctx.save();
+    if ('filter' in ctx) ctx.filter = `blur(${Math.max(2, h * .035)}px) saturate(1.06)`;
+    ctx.globalAlpha = 0.78;
+    cover(ctx, pic, pw, ph, x - w * .06, y - h * .06, w * 1.12, h * 1.12);
+    if (typeof ctx.restore === 'function') ctx.restore();
+    if (scrim) {
+      const grad = ctx.createLinearGradient(0, 0, w > h * 1.5 ? w * .72 : 0, w > h * 1.5 ? 0 : h);
+      grad.addColorStop(0, scrim);
+      grad.addColorStop(.55, scrim);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, w, h);
+    }
+  }
+  function drawFramedPhoto(ctx, pic, pw, ph, x, y, w, h, opts = {}) {
+    if (!pw || !ph) return;
+    const fit = opts.fit || S.fitMode || 'contain';
+    if (fit === 'cover') {
+      cover(ctx, pic, pw, ph, x, y, w, h);
+      return;
+    }
+    if (pw * h === ph * w && !opts.pad) {
+      ctx.drawImage(pic, 0, 0, pw, ph, x, y, w, h);
+      return;
+    }
+    const canSave = typeof ctx.save === 'function';
+    if (canSave) {
+      ctx.save();
+      if (typeof ctx.beginPath === 'function' && typeof ctx.rect === 'function' && typeof ctx.clip === 'function') {
+        ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      }
+    }
+    if (!opts.skipAmbient) {
+      if (canSave) ctx.save();
+      if ('filter' in ctx) ctx.filter = `blur(${Math.max(2, Math.min(w, h) * .026)}px) saturate(1.06)`;
+      ctx.globalAlpha = 0.72;
+      cover(ctx, pic, pw, ph, x - w * .06, y - h * .06, w * 1.12, h * 1.12);
+      if (canSave) ctx.restore();
+      ctx.fillStyle = opts.veil || 'rgba(255, 255, 255, 0.16)';
+      ctx.fillRect(x, y, w, h);
+    }
+    const pad = opts.pad || 0;
+    const box = containRect(pw, ph, x + pad, y + pad, Math.max(1, w - pad * 2), Math.max(1, h - pad * 2));
+    if (canSave) ctx.save();
+    if (!opts.noShadow) {
+      ctx.shadowColor = 'rgba(15, 23, 42, 0.16)';
+      ctx.shadowBlur = Math.round(Math.min(w, h) * .028);
+      ctx.shadowOffsetY = Math.round(Math.min(w, h) * .006);
+    }
+    ctx.drawImage(pic, 0, 0, pw, ph, box.dx, box.dy, box.dw, box.dh);
+    if (canSave) { ctx.restore(); ctx.restore(); }
   }
 
   const baseFacts = { name: '冰奶油拿铁', price: '18', offer: '', shop: '拾叶咖啡' };
@@ -480,7 +574,7 @@
   /* ---------- 多页面预览渲染（按当前可见页面懒渲染） ---------- */
   function renderPhoneView() {
     if(!S.photo) return;
-    const pf = previewFacts();
+    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
     const checked = $('input[name=ph]:checked');
     const pk = checked ? checked.value === 'pack' : true;
     const kM = S.kit.main, kB = S.kit.banner;
@@ -510,17 +604,19 @@
   function renderCompareView() {
     if(!S.photo) return;
     const after = $('#baAfter'), before = $('#baBefore');
-    const pf = previewFacts();
+    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
     const kM = S.kit[S.sheet] || S.kit.main;
     const useUserPhoto = !!S.photo && !S.isSample;
     const src = useUserPhoto ? S.photo : null;
     if (after && before) {
+      const spec = SHEETS.find(s => s.id === S.sheet);
+      $('#ba').style.setProperty('--ar', `${spec.w} / ${spec.h}`);
       if (kM && kM.status === 'done') {
         render(after, S.sheet, { mode: (S.live || S.isSample) ? kM.mode : 'raw', facts: pf, scene: kM.scene, seed: kM.seed, src, sceneImg: kM.sceneImg });
       } else {
         render(after, S.sheet, { mode: useUserPhoto ? 'raw' : 'ai', facts: pf, scene: S.scene, seed: 2, src });
       }
-      render(before, S.sheet, { mode: 'raw', facts: pf, src });
+      render(before, S.sheet, { mode: 'raw', facts: pf, src, fit: 'contain' });
     }
     $$('#proofs canvas').forEach(c => {
       const id = c.dataset.sheet;
@@ -538,7 +634,7 @@
     const fp = $('#factsPoster');
     if (!fp) return;
     const fPrice = $('#fPrice'), fOffer = $('#fOffer');
-    const pf = previewFacts();
+    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
     const f = {
       name: pf.name,
       price: pf.price,
@@ -556,7 +652,11 @@
   function mountCompareAndPhone() {
     const proofs = $('#proofs');
     if (proofs) {
-      proofs.innerHTML = SHEETS.map(s => `<li class="proof proof-${s.id}" data-jump-spec="${s.id}"><div class="crop"><canvas data-sheet="${s.id}" width="${Math.round(s.w / 3)}" height="${Math.round(s.h / 3)}" aria-label="${s.name}示意"></canvas></div><b>${s.name}</b><span>${s.w} × ${s.h} px · ${s.use}</span></li>`).join('');
+      proofs.innerHTML = SHEETS.map(s => `<li class="proof proof-${s.id}" data-jump-spec="${s.id}"><div class="crop"><canvas data-sheet="${s.id}" width="${Math.round(s.w / 3)}" height="${Math.round(s.h / 3)}" aria-label="${s.name}示意"></canvas></div><b>${s.name}</b><span>${s.w} × ${s.h} px · ${s.use}</span><button type="button" class="link proof-view" data-view-proof="${s.id}" aria-label="查看${s.name}大图">查看大图</button></li>`).join('');
+      $$('[data-view-proof]', proofs).forEach(button => button.addEventListener('click', e => {
+        e.stopPropagation();
+        openLightbox(button.dataset.viewProof, 'product', button);
+      }));
       $$('[data-jump-spec]', proofs).forEach(li => li.addEventListener('click', () => {
         const spec = li.dataset.jumpSpec;
         if (S.phase === 'result' && S.kit[spec] && S.kit[spec].status === 'done') S.sheet = spec;
@@ -679,7 +779,14 @@
     if (pg) pg.hidden = p !== 'gen';
     if (pr) pr.hidden = p !== 'result';
     if (pe) pe.hidden = p !== 'error';
-    const drop = $('#drop'), dropOverlay = $('#dropOverlay'), hc = $('#holdCompare');
+    const drop = $('#drop'), dropOverlay = $('#dropOverlay'), hc = $('#holdCompare'), fitBtn = $('#fitModeBtn'), zoomBtn = $('#zoomStageBtn'), liveBadge = $('#stageLiveBadge');
+    if (fitBtn) fitBtn.hidden = !['ready', 'result'].includes(p);
+    if (zoomBtn) zoomBtn.hidden = !['ready', 'result'].includes(p);
+    syncImageActions();
+    if (liveBadge) {
+      if (p === 'gen') { liveBadge.hidden = false; liveBadge.dataset.kind = 'gen'; liveBadge.textContent = `AI 正在布光「${sceneName(S.scene)}」…`; }
+      else if (!holdRaw) { liveBadge.hidden = true; }
+    }
     if (drop) drop.hidden = p !== 'empty';
     if (dropOverlay) dropOverlay.hidden = p !== 'empty';
     if (hc) hc.hidden = p !== 'result';
@@ -716,12 +823,12 @@
   function sizeCanvasFor(id) {
     const sp = SHEETS.find(s => s.id === id) || SHEETS[0], c = stage();
     if (!c) return;
-    const rect = c.getBoundingClientRect?.();
-    const scale = Math.min(1, ((rect?.width || 600) * Math.min(2, window.devicePixelRatio || 1)) / sp.w);
-    const width=Math.round(sp.w*scale),height=Math.round(sp.h*scale);
-    if(c.width!==width || c.height!==height){c.width=width;c.height=height;renderCache.delete(c);}
+    if (c.width !== sp.w || c.height !== sp.h) {
+      c.width = sp.w; c.height = sp.h;
+      renderCache.delete(c);
+    }
     const frame = $('#stageFrame');
-    if (frame && frame.style) frame.style.setProperty('--ar', `${sp.w}/${sp.h}`);
+    if (frame && frame.style) { frame.style.setProperty('--ar', `${sp.w}/${sp.h}`); frame.style.setProperty('--ar-num', String(sp.w / sp.h)); }
   }
   let rafId = 0;
   function redrawStage() {
@@ -736,9 +843,10 @@
     const c = stage();
     if (!c) return;
     if (p === 'empty') {
-      sizeCanvasFor(S.previewSheet || 'main');
+      sizeCanvasFor('main');
       const x = c.getContext && c.getContext('2d');
       if (x) x.clearRect(0, 0, c.width, c.height);
+      renderCache.delete(c);
       if (note) note.textContent = `已选「${sceneName(S.scene)} · ${ROASTS[S.roast - 1].name}」场景氛围 · 上传照片或试用示例即可预览`;
       return;
     }
@@ -749,16 +857,17 @@
       if (!k || k.status !== 'done') {
         const x = c.getContext && c.getContext('2d');
         if (x) x.clearRect(0, 0, c.width, c.height);
+        renderCache.delete(c);
         return;
       }
-      const issues = render(c, id, { mode: holdRaw ? 'raw' : ((S.live || S.isSample) ? k.mode : 'raw'), seed: k.seed, scene: k.scene, facts: currentFacts(), src: S.isSample ? null : S.photo, sceneImg: k.sceneImg });
+      const issues = render(c, id, { mode: holdRaw ? 'raw' : ((S.live || S.isSample) ? k.mode : 'raw'), seed: k.seed, scene: k.scene, facts: currentFacts(), src: S.isSample ? null : S.photo, sceneImg: k.sceneImg, fit: holdRaw ? 'contain' : S.fitMode, fixedSize: true });
       k.issues = issues; updateResult();
       if (note) note.textContent = holdRaw ? '原片对照中' : (k.mode === 'scene' ? 'AI 场景生成 · 实时排版' : (k.mode === 'ai' && S.isSample ? '示例合成 · 未调用模型' : '原片版 · 商品未重绘'));
     } else {
-      render(c, id, { mode: (S.live || S.isSample) ? 'ai' : 'raw', seed: 2, scene: S.scene, facts: currentFacts(), src: S.isSample ? null : S.photo });
+      render(c, id, { mode: (S.live || S.isSample) ? 'ai' : 'raw', seed: 2, scene: S.scene, facts: currentFacts(), src: S.isSample ? null : S.photo, fixedSize: true });
       if (note) note.textContent = !S.isSample
-        ? `实时预览（原片排版）：已选「${sceneName(S.scene)}」场景，在线生成时将按该场景出图`
-        : `示例合成预览：${sceneName(S.scene)} · ${ROASTS[S.roast - 1].name}，点右侧生成全套 4 图`;
+        ? `实时预览（原片排版）：已选「${sceneName(S.scene)}」场景，点击画面可放大查看`
+        : `示例合成预览：${sceneName(S.scene)} · ${ROASTS[S.roast - 1].name}，点击画面可放大查看`;
     }
   }
   let allRaf = 0;
@@ -795,15 +904,17 @@
 
   function updateResult() {
     $('#cupOk').checked = !!S.cupOk;
+    if ($('#confirmRow')?.classList) $('#confirmRow').classList.toggle('is-checked', !!S.cupOk);
     if($('#compareConfirm')) $('#compareConfirm').checked = !!S.cupOk;
     const sp = SHEETS.find(s => s.id === S.sheet), k = S.kit[S.sheet]; if (!k || !sp) return;
+    syncImageActions();
     $('#resTitle').textContent = sp.name;
     $('#resSpec').textContent = `${sp.w} × ${sp.h} 像素 JPG · ${sp.use}`;
     const useAiMode = S.live || S.isSample;
     const fr = $(`input[name=fid][value=${useAiMode && k.mode !== 'raw' ? 'scene' : 'raw'}]`); if (fr) fr.checked = true;
     $$('input[name=fid]').forEach(i => { i.disabled = !useAiMode; });
     const anyAi = useAiMode && Object.values(S.kit).some(x => x.status === 'done' && (x.mode === 'ai' || x.mode === 'scene'));
-    $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，会尽量保持商品原样，下载前请核对。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '只裁切和排版，商品没有被重绘。';
+    $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，会尽量保持商品原样，下载前请核对。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '使用原片排版，保留商品原样。';
     $('#confirmRow').hidden = !anyAi;
     $('#vers').innerHTML = k.versions.map((v, i) => `<button type="button" data-i="${i}" aria-pressed="${i === k.cur}" aria-label="第 ${i + 1} 版">v${i + 1}</button>`).join('');
     $$('#vers button').forEach(b => b.addEventListener('click', () => { cancelImageFlow(); k.cur = +b.dataset.i; Object.assign(k, k.versions[k.cur]); redrawStage(); drawStrip(); updateResult(); }));
@@ -846,8 +957,8 @@
       $('#cancel').hidden = false;
       $('#genNote').textContent = S.live ? '请求已提交，服务端处理中。离开等待不会撤回任务或退还已结算额度。' : '本地排版处理中，未调用在线模型。';
       if (S.live) SHEETS.forEach(sd => { S.kit[sd.id].status = 'run'; });
-      setPhase('gen'); renderSteps();
-      const tick=()=>{if(generationTask !== task)return; $('#genTimer').textContent='已等待 '+Math.floor((Date.now()-task.startedAt)/1000)+' 秒';setTimeout(tick,1000);}; if(typeof performance !== 'undefined') tick();
+      setPhase('gen'); renderSteps(0);
+      const tick=()=>{if(generationTask !== task)return; const sec=Math.floor((Date.now()-task.startedAt)/1000); $('#genTimer').textContent=`已用时 ${sec} 秒`; if(S.live) renderSteps(sec); setTimeout(tick,1000);}; if(typeof performance !== 'undefined') tick();
 
       if (S.live) {
         try {
@@ -891,9 +1002,19 @@
     const b = $(`#strip button[data-id=${id}]`); if (!b || !b.animate) return;
     b.animate([{ transform: 'translateY(-16px) scale(1.06)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
-  function renderSteps() {
+  function renderSteps(sec = 0) {
     const el = $('#steps');
     if (!el) return;
+    if (S.live) {
+      const stages = [
+        { name: '读取商品照与售卖事实', st: sec < 1 ? 'run' : 'done', lbl: sec < 1 ? '识别中' : '已完成' },
+        { name: 'AI 策划光影构图与文案', st: sec < 1 ? 'wait' : sec < 7 ? 'run' : 'done', lbl: sec < 1 ? '待开始' : sec < 7 ? '撰写中' : '已完成' },
+        { name: `棚拍「${sceneName(S.scene)}」完整场景`, st: sec < 7 ? 'wait' : 'run', lbl: sec < 7 ? '待布光' : '布光拍摄中' },
+        { name: '同步排版 4 套外卖规格', st: 'wait', lbl: '等待出图' },
+      ];
+      el.innerHTML = stages.map(s => `<li data-status="${s.st}"><span>${s.name}</span><em>${s.lbl}</em></li>`).join('');
+      return;
+    }
     el.innerHTML = SHEETS.map(s => {
       const k = S.kit[s.id]; const t = { wait: '排队中', run: '生成中', done: '已完成', error: '没做成' }[k.status];
       return `<li data-status="${k.status}"><span>${s.name}</span><em>${t}</em></li>`;
@@ -932,8 +1053,10 @@
       photoSelection = null;
       const short = Math.min(im.naturalWidth, im.naturalHeight);
       photoRevision++; S.photo = im; S.isSample = false; pendingFile = f;
+      setFitMode('contain');
       msg.dataset.kind = short < 800 ? 'warn' : '';
-      msg.innerHTML = short < 800 ? `<span>照片短边仅 ${short} px，导出可能发虚</span><button type="button" class="link" id="rePick">换一张</button>` : `<span>已选用照片（${im.naturalWidth}×${im.naturalHeight}）</span><button type="button" class="link" id="rePick">换一张</button>`;
+      const orient = im.naturalHeight > im.naturalWidth * 1.08 ? '竖构图' : im.naturalWidth > im.naturalHeight * 1.08 ? '横构图' : '方构图';
+      msg.innerHTML = short < 800 ? `<span>已选用${orient}（短边 ${short} px，导出可能偏虚）</span><button type="button" class="link" id="rePick">换一张</button>` : `<span>已选用${orient}（${im.naturalWidth}×${im.naturalHeight}）</span><button type="button" class="link" id="rePick">换一张</button>`;
       $('#rePick').addEventListener('click', () => $('#file').click());
       setPhase('ready');
     };
@@ -947,11 +1070,12 @@
   }
   async function useSample(scene = S.scene) {
     try { await ensureSampleAssets(); } catch { toast('示例读取失败，可重试或上传照片'); return; }
-    if(!S.isSample) S.sampleUndo={photo:S.photo,isSample:S.isSample,name:S.name,shop:S.shop,price:S.price,offer:S.offer,high:S.high,scene:S.scene,photoMsg:$('#photoMsg').innerHTML};
+    if(!S.isSample) S.sampleUndo={photo:S.photo,isSample:S.isSample,name:S.name,shop:S.shop,price:S.price,offer:S.offer,high:S.high,scene:S.scene,fitMode:S.fitMode,photoMsg:$('#photoMsg').innerHTML,photoKind:$('#photoMsg').dataset.kind};
     S.scene=scene;
     cancelPhotoSelection(); invalidateImageRequest(); photoRevision++;
     if($('#sampleUndo')) $('#sampleUndo').hidden=false;
     S.photo = img.photo; S.isSample = true; pendingFile = null;
+    setFitMode('contain');
     S.name = S.name || '冰奶油拿铁'; S.price = S.price || '18'; S.shop = S.shop || '拾叶咖啡';
     syncAllInputs();
     $('#photoMsg').dataset.kind = '';
@@ -1051,8 +1175,8 @@
   function mountHold() {
     const b = $('#holdCompare');
     if (!b) return;
-    const on = e => { e.preventDefault(); holdRaw = true; b.setAttribute('aria-pressed', 'true'); drawStageNow(); };
-    const off = () => { if (!holdRaw) return; holdRaw = false; b.setAttribute('aria-pressed', 'false'); drawStageNow(); };
+    const on = e => { e.preventDefault(); holdRaw = true; b.setAttribute('aria-pressed', 'true'); if ($('#stageLiveBadge')) { $('#stageLiveBadge').hidden = false; $('#stageLiveBadge').dataset.kind = 'raw'; $('#stageLiveBadge').textContent = '原片对照中'; } drawStageNow(); };
+    const off = () => { if (!holdRaw) return; holdRaw = false; b.setAttribute('aria-pressed', 'false'); if ($('#stageLiveBadge') && S.phase !== 'gen') $('#stageLiveBadge').hidden = true; drawStageNow(); };
     b.addEventListener('pointerdown', on); ['pointerup', 'pointerleave', 'pointercancel', 'blur'].forEach(n => b.addEventListener(n, off));
     b.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') on(e); }); b.addEventListener('keyup', off);
   }
@@ -1160,7 +1284,15 @@
     ['dragover', 'dragenter'].forEach(n => $('#stageFrame').addEventListener(n, e => { e.preventDefault(); $('#stageFrame').dataset.over = '1'; }));
     ['dragleave', 'drop'].forEach(n => $('#stageFrame').addEventListener(n, e => { e.preventDefault(); $('#stageFrame').dataset.over = ''; }));
     $('#stageFrame').addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) takeFile(f); });
-    $('#go').addEventListener('click', generate);
+    $('#go').addEventListener('click', () => {
+      const err = validate();
+      if (err) {
+        if (!S.photo) $('#drop')?.focus?.();
+        else if (!S.name.trim() || S.name.trim().length > 40) { $('#iName')?.focus?.(); const f = $('#iName')?.closest?.('.field'); if (f?.classList) { f.classList.remove('is-invalid'); void f.offsetWidth; f.classList.add('is-invalid'); setTimeout(() => f.classList.remove('is-invalid'), 600); } }
+        else { $('#iPrice')?.focus?.(); const f = $('#iPrice')?.closest?.('.field'); if (f?.classList) { f.classList.remove('is-invalid'); void f.offsetWidth; f.classList.add('is-invalid'); setTimeout(() => f.classList.remove('is-invalid'), 600); } }
+      }
+      return generate();
+    });
     $('#cancel').addEventListener('click', () => { cancelPhotoSelection(); cancelImageFlow(); setPhase('ready'); $('#briefErr').textContent=generationTask?'上一笔生成仍在处理中，完成后可查看上一稿。':'';toast('已退出等待；已提交任务仍会继续'); });
     $('#errRetry').addEventListener('click', () => { if (imageRecovery) return recoverImage(imageRecovery); S.scenario = 'ok'; return generate(); });
     $('#errBack').addEventListener('click', () => { cancelPhotoSelection(); cancelImageFlow(); setPhase('ready'); });
@@ -1200,7 +1332,17 @@
     $('#cupOk').addEventListener('change', e => { S.cupOk = e.target.checked; updateResult(); });
     $('#exportAll').addEventListener('click', exportAll);
     $('#exportOne').addEventListener('click', async () => { const r = exportBlock(); if (r) return toast(r); save(await sheetBlob(S.sheet), fname(S.sheet)); toast(`已下载${SHEETS.find(s => s.id === S.sheet).name}`); });
-    $('#copyBtn').addEventListener('click', async () => { try { await navigator.clipboard.writeText(exportCopy(currentFacts())); toast('文案已复制'); } catch { toast('浏览器没允许复制，请手动选中'); } });
+    $('#copyBtn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(exportCopy(currentFacts()));
+        const btn = $('#copyBtn'), sp = $('#copyBtn span');
+        if (btn?.classList && sp) {
+          btn.classList.add('is-copied'); sp.textContent = '✓ 已复制';
+          setTimeout(() => { btn.classList.remove('is-copied'); sp.textContent = '复制文案'; }, 1800);
+        }
+        toast('文案已复制到剪贴板');
+      } catch { toast('浏览器没允许复制，请手动选中'); }
+    });
     $('#showPhone').addEventListener('click', () => {
       switchView('phone');
     });
@@ -1210,7 +1352,22 @@
     $('#compareAll')?.addEventListener('click',()=>$('#exportAll').click());
     $('#compareConfirm')?.addEventListener('change',e=>{$('#cupOk').checked=e.target.checked;S.cupOk=e.target.checked;updateResult();});
     $$('.sample-presets button').forEach(b=>b.addEventListener('click',()=>useSample(b.dataset.sample)));
-    $('#sampleUndo')?.addEventListener('click',()=>{if(!S.sampleUndo)return;const prev=S.sampleUndo;Object.assign(S,prev);photoRevision++;syncAllInputs();invalidateImageRequest();$('#photoMsg').innerHTML=prev.photoMsg;$('#rePick')?.addEventListener('click', () => $('#file').click());$('#photoMsg').dataset.kind='';$('#sampleUndo').hidden=true;delete S.sampleUndo;setPhase(S.photo?'ready':'empty');});
+    $('#sampleUndo')?.addEventListener('click', () => {
+      if (!S.sampleUndo) return;
+      const { photoMsg, photoKind, ...previous } = S.sampleUndo;
+      Object.assign(S, previous);
+      photoRevision++;
+      syncAllInputs();
+      invalidateImageRequest();
+      setFitMode(previous.fitMode);
+      const msg = $('#photoMsg');
+      msg.innerHTML = photoMsg;
+      msg.dataset.kind = photoKind || '';
+      $('#rePick')?.addEventListener('click', () => $('#file').click());
+      $('#sampleUndo').hidden = true;
+      delete S.sampleUndo;
+      setPhase(S.photo ? 'ready' : 'empty');
+    });
     $('#resCopy')?.addEventListener('input', e => {S.copyUndo = S.editedCopy; S.editedCopy = e.target.textContent;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
     $('#copyReset')?.addEventListener('click', () => {S.copyUndo=S.editedCopy;delete S.editedCopy;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
     $('#copyUndo')?.addEventListener('click', () => {const prev=S.editedCopy;S.editedCopy=S.copyUndo;S.copyUndo=prev;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
@@ -1268,6 +1425,245 @@
     return samplePromise;
   }
 
+
+  /* ---------- 构图模式切换 & 高清大图缩放查看器 ---------- */
+  function sceneSource(spec) {
+    return S.phase === 'result' ? S.kit[spec]?.sceneImg : null;
+  }
+
+  function syncImageActions() {
+    const ready = S.phase === 'ready' || S.phase === 'result';
+    const original = $('#viewOriginal'), ai = $('#viewAiSource');
+    if (original) original.hidden = !ready || !S.photo;
+    if (ai) ai.hidden = !sceneSource(S.sheet);
+    if ($('#zoomStageBtn')) $('#zoomStageBtn').textContent = S.phase === 'result' ? '查看成品' : '查看预览';
+    $$('[data-view-proof]').forEach(button => { button.disabled = !ready; });
+  }
+
+  function setFitMode(mode) {
+    S.fitMode = mode === 'cover' ? 'cover' : 'contain';
+    for (const id of ['#fitModeBtn', '#lbFitBtn']) {
+      $(id)?.setAttribute('aria-pressed', String(S.fitMode === 'cover'));
+    }
+    redrawAll();
+    if ($('#lightboxDlg')?.open) renderLightbox();
+  }
+
+  const lb = { zoom: 1, tx: 0, ty: 0, spec: 'main', source: 'product', opener: null,
+    dragging: false, startX: 0, startY: 0, origX: 0, origY: 0, pointers: new Map(), pinchDist: 0, pinchZoom: 1 };
+
+  function applyLbTransform() {
+    lb.zoom = Math.max(1, Math.min(4, lb.zoom));
+    const pan = $('#lbPan'), stageEl = $('#lbStage'), canvas = $('#lbCanvas');
+    const maxX = Math.max(0, (canvas.offsetWidth * lb.zoom - stageEl.clientWidth) / 2);
+    const maxY = Math.max(0, (canvas.offsetHeight * lb.zoom - stageEl.clientHeight) / 2);
+    lb.tx = Math.max(-maxX, Math.min(maxX, lb.tx));
+    lb.ty = Math.max(-maxY, Math.min(maxY, lb.ty));
+    pan.style.transform = `translate(${lb.tx}px, ${lb.ty}px) scale(${lb.zoom})`;
+    stageEl.dataset.zoomed = lb.zoom > 1 ? '1' : '0';
+    $('#lbZoomLabel').textContent = Math.round(lb.zoom * 100) + '%';
+    $('#lbZoomOut').disabled = lb.zoom === 1;
+    $('#lbZoomIn').disabled = lb.zoom === 4;
+  }
+
+  function renderLightbox() {
+    const c = $('#lbCanvas');
+    const sp = SHEETS.find(s => s.id === lb.spec) || SHEETS[0];
+    const ai = sceneSource(sp.id);
+    if (lb.source === 'ai' && !ai) lb.source = 'product';
+    const pic = lb.source === 'original' ? S.photo : lb.source === 'ai' ? ai : null;
+    const width = pic ? pic.naturalWidth || pic.width : sp.w;
+    const height = pic ? pic.naturalHeight || pic.height : sp.h;
+    c.width = width; c.height = height;
+    renderCache.delete(c);
+    $('#lbTitle').textContent = pic ? (lb.source === 'original' ? '原片' : 'AI 源图') : sp.name;
+    $('#lbSpecInfo').textContent = `${width} × ${height} px`;
+    $('#lbRawToggle').setAttribute('aria-pressed', String(lb.source === 'original'));
+    $('#lbAiSource').hidden = !ai;
+    $('#lbAiSource').setAttribute('aria-pressed', String(lb.source === 'ai'));
+    $('#lbFitBtn').hidden = !!pic;
+    const k = S.phase === 'result' && S.kit[sp.id]?.status === 'done' ? S.kit[sp.id] : null;
+    $('#lbDownload').hidden = !!pic || !k;
+    $('#lbDownloadNote').textContent = '';
+    if (pic) {
+      c.getContext('2d').drawImage(pic, 0, 0);
+    } else {
+      render(c, sp.id, {
+        mode: (S.live || S.isSample) ? k?.mode || 'ai' : 'raw',
+        seed: k?.seed ?? 2,
+        scene: k?.scene || S.scene,
+        facts: S.view === 'compare' && !k ? previewFacts() : currentFacts(),
+        src: S.isSample ? null : S.photo,
+        sceneImg: k?.sceneImg,
+        fixedSize: true,
+      });
+    }
+    $$('#lbSpecs .lb-spec-tab').forEach(button => {
+      const selected = !pic && button.dataset.spec === sp.id;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
+    fitLightboxCanvas();
+  }
+
+  function fitLightboxCanvas() {
+    const stageEl = $('#lbStage'), c = $('#lbCanvas');
+    const inset = 24;
+    const scale = Math.min((stageEl.clientWidth - inset) / c.width, (stageEl.clientHeight - inset) / c.height);
+    c.style.width = `${Math.max(1, c.width * scale)}px`;
+    c.style.height = `${Math.max(1, c.height * scale)}px`;
+    applyLbTransform();
+  }
+
+  function chooseLightboxSource(source, spec = lb.spec) {
+    lb.source = source; lb.spec = spec;
+    lb.zoom = 1; lb.tx = 0; lb.ty = 0;
+    renderLightbox();
+  }
+
+  function openLightbox(spec, source = 'product', opener = document.activeElement) {
+    if (!S.photo || !['ready', 'result'].includes(S.phase)) return;
+    const dlg = $('#lightboxDlg');
+    if (!dlg || dlg.open || typeof dlg.showModal !== 'function') return;
+    const active = spec || (S.phase === 'result' || S.view === 'compare' ? S.sheet : S.previewSheet);
+    lb.opener = opener;
+    const host = $('#lbSpecs');
+    if (!host.children.length) {
+      host.innerHTML = SHEETS.map(s => `<button type="button" class="lb-spec-tab" data-spec="${s.id}">${s.name}</button>`).join('');
+      $$('.lb-spec-tab', host).forEach(button => button.addEventListener('click', () => chooseLightboxSource('product', button.dataset.spec)));
+    }
+    dlg.showModal();
+    chooseLightboxSource(source, active || 'main');
+  }
+
+  function mountFitAndLightbox() {
+    const changeFit = () => {
+      S.cupOk = false;
+      setFitMode(S.fitMode === 'contain' ? 'cover' : 'contain');
+      if (S.phase === 'result') updateResult();
+      toast(S.fitMode === 'contain' ? '已保留照片四边' : '已铺满图框，照片边缘可能被裁切');
+    };
+    $('#fitModeBtn')?.addEventListener('click', changeFit);
+    $('#lbFitBtn')?.addEventListener('click', changeFit);
+    $('#stageCanvas')?.addEventListener('click', () => openLightbox(undefined, 'product', $('#zoomStageBtn')));
+    for (const [id, source] of [['#zoomStageBtn', 'product'], ['#compareZoomBtn', 'product'], ['#viewOriginal', 'original'], ['#viewAiSource', 'ai']]) {
+      $(id)?.addEventListener('click', e => openLightbox(undefined, source, e.currentTarget));
+    }
+
+    const dlg = $('#lightboxDlg'), stageEl = $('#lbStage');
+    if (!dlg || !stageEl) return;
+    $('#lbClose')?.addEventListener('click', () => dlg.close());
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+    $('#lbRawToggle')?.addEventListener('click', () => chooseLightboxSource(lb.source === 'original' ? 'product' : 'original'));
+    $('#lbAiSource')?.addEventListener('click', () => chooseLightboxSource(lb.source === 'ai' ? 'product' : 'ai'));
+    dlg.addEventListener('close', () => {
+      lb.pointers.clear(); lb.pinchDist = 0; lb.dragging = false;
+      stageEl.dataset.dragging = '0';
+      if (lb.opener?.isConnected) lb.opener.focus({ preventScroll: true });
+    });
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => { if (dlg.open) fitLightboxCanvas(); }).observe(stageEl);
+    }
+    $('#lbZoomIn')?.addEventListener('click', () => { lb.zoom = Math.min(4, lb.zoom * 1.25); applyLbTransform(); });
+    $('#lbZoomOut')?.addEventListener('click', () => { lb.zoom = Math.max(0.5, lb.zoom / 1.25); applyLbTransform(); });
+    $('#lbZoomFit')?.addEventListener('click', () => { lb.zoom = 1; lb.tx = 0; lb.ty = 0; applyLbTransform(); });
+    $('#lbZoom200')?.addEventListener('click', () => { lb.zoom = 2; lb.tx = 0; lb.ty = 0; applyLbTransform(); });
+    $('#lbDownload')?.addEventListener('click', async () => {
+      if (lb.source !== 'product' || S.phase !== 'result' || S.kit[lb.spec]?.status !== 'done') return;
+      const err = exportBlock();
+      if (err) {
+        $('#lbDownloadNote').textContent = err.startsWith('勾选') ? '关闭大图后，勾选页面上的核对确认框即可下载。' : err;
+        return;
+      }
+      const spec = lb.spec, name = fname(spec);
+      save(await sheetBlob(spec), name);
+      $('#lbDownloadNote').textContent = '已开始下载';
+    });
+    stageEl.addEventListener('wheel', e => {
+      e.preventDefault();
+      if (!e.deltaY) return;
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      lb.zoom = Math.max(0.5, Math.min(4, lb.zoom * factor));
+      applyLbTransform();
+    }, { passive: false });
+    stageEl.addEventListener('dblclick', () => {
+      if (lb.zoom > 1.05) { lb.zoom = 1; lb.tx = 0; lb.ty = 0; }
+      else { lb.zoom = 2; }
+      applyLbTransform();
+    });
+    stageEl.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || lb.pointers.size >= 2) return;
+      lb.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      stageEl.setPointerCapture?.(e.pointerId);
+      if (lb.pointers.size === 2) {
+        const [a, b] = [...lb.pointers.values()];
+        lb.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+        lb.pinchZoom = lb.zoom;
+        lb.dragging = false;
+        stageEl.dataset.dragging = '0';
+        return;
+      }
+      if (lb.zoom > 1.02) {
+        lb.dragging = true; lb.startX = e.clientX; lb.startY = e.clientY; lb.origX = lb.tx; lb.origY = lb.ty;
+        stageEl.dataset.dragging = '1';
+      }
+    });
+    stageEl.addEventListener('pointermove', e => {
+      if (!lb.pointers.has(e.pointerId)) return;
+      lb.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (lb.pointers.size === 2 && lb.pinchDist > 0) {
+        const [a, b] = [...lb.pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        lb.zoom = lb.pinchZoom * (dist / lb.pinchDist);
+        applyLbTransform();
+        return;
+      }
+      if (!lb.dragging) return;
+      lb.tx = lb.origX + (e.clientX - lb.startX);
+      lb.ty = lb.origY + (e.clientY - lb.startY);
+      applyLbTransform();
+    });
+    const endPointer = e => {
+      if (!lb.pointers.delete(e.pointerId)) return;
+      lb.pinchDist = 0;
+      const [remaining] = lb.pointers.values();
+      lb.dragging = !!remaining && lb.zoom > 1;
+      stageEl.dataset.dragging = lb.dragging ? '1' : '0';
+      if (lb.dragging) {
+        lb.startX = remaining.x; lb.startY = remaining.y;
+        lb.origX = lb.tx; lb.origY = lb.ty;
+      }
+    };
+    stageEl.addEventListener('pointerup', endPointer);
+    stageEl.addEventListener('pointercancel', endPointer);
+    stageEl.addEventListener('lostpointercapture', endPointer);
+    document.addEventListener?.('keydown', e => {
+      if (dlg.open) {
+        if (e.key === '+' || e.key === '=') { e.preventDefault(); lb.zoom *= 1.2; applyLbTransform(); }
+        else if (e.key === '-') { e.preventDefault(); lb.zoom /= 1.2; applyLbTransform(); }
+        else if (e.key === '0') { e.preventDefault(); lb.zoom = 1; lb.tx = 0; lb.ty = 0; applyLbTransform(); }
+        else if (e.target === stageEl && e.key.startsWith('Arrow')) {
+          e.preventDefault();
+          if (e.key === 'ArrowLeft') lb.tx += 48;
+          if (e.key === 'ArrowRight') lb.tx -= 48;
+          if (e.key === 'ArrowUp') lb.ty += 48;
+          if (e.key === 'ArrowDown') lb.ty -= 48;
+          applyLbTransform();
+        }
+        return;
+      }
+      if (S.view === 'studio' && ['ready', 'result'].includes(S.phase) && !e.defaultPrevented && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+        const cur = S.phase === 'result' ? S.sheet : S.previewSheet;
+        const idx = SHEETS.findIndex(s => s.id === cur);
+        const next = SHEETS[(idx + (e.key === 'ArrowRight' ? 1 : -1) + SHEETS.length) % SHEETS.length].id;
+        if (S.phase === 'result' && S.kit[next]?.status === 'done') selectSheet(next);
+        else { S.previewSheet = next; syncSpecTabs(); redrawStage(); }
+      }
+    });
+  }
+
   function boot() {
     // 1. 瞬时挂载全套工作台界面，零阻塞等待字体、示例图片或网络接口
     mountDials();
@@ -1276,12 +1672,13 @@
     mountProgressiveUi();
     mountUnlock();
     mountHold();
+    mountFitAndLightbox();
     setRoast(S.roast, true);
     setPhase('empty');
     updateServiceUi('ready');
     window.addEventListener('hashchange', route);
     route();
-    window.__cb = { S, setRoast, render, SHEETS, switchView };
+    window.__cb = { S, setRoast, render, SHEETS, switchView, setFitMode, openLightbox };
 
     // 2. 后台异步解码示例图并静默检测在线额度（超时 4.5s 自动回退，永不卡死）
     if(!restoreStatus()) retryProbe(false);

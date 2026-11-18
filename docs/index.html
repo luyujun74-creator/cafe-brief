@@ -114,6 +114,10 @@
               </div>
               <div class="stage-tools">
                 <span class="stage-note" id="stageNote">上传商品照后可实时预览文字与色调</span>
+                <button class="btn btn-xs btn-outline" id="fitModeBtn" type="button" aria-pressed="false" title="开启时让照片填满图框，可能裁掉边缘" hidden>铺满裁切</button>
+                <button class="btn btn-xs btn-outline" id="zoomStageBtn" type="button" hidden>查看成品</button>
+                <button class="btn btn-xs btn-outline" id="viewOriginal" type="button" hidden>查看原片</button>
+                <button class="btn btn-xs btn-outline" id="viewAiSource" type="button" hidden>查看 AI 源图</button>
                 <button class="btn btn-xs btn-outline hold" id="holdCompare" type="button" hidden>按住看原片</button>
               </div>
             </div>
@@ -122,6 +126,8 @@
               <span class="stage-scene" id="stageScene" role="status" aria-live="polite"></span>
               <div class="stage-frame" id="stageFrame">
                 <canvas id="stageCanvas" width="1080" height="1440" aria-label="当前画面预览"></canvas>
+                <span class="stage-zoom-hint" id="stageZoomHint" aria-hidden="true">点击查看大图 · 滚轮缩放</span>
+                <span class="stage-live-badge" id="stageLiveBadge" hidden></span>
                 <div class="drop-overlay" id="dropOverlay">
                   <button class="drop" id="drop" type="button">
                     <span class="drop-icon" aria-hidden="true">
@@ -215,8 +221,8 @@
                 <span class="badge badge-blue" id="genTimer">进行中</span>
               </div>
               <ol class="steps" id="steps" aria-live="polite"></ol>
-              <p class="fine" id="genNote">请求处理中，耗时随服务负载变化；离开等待不会撤回已提交任务。</p>
-              <button class="btn btn-outline btn-wide" id="cancel" type="button"><span>离开等待（不会撤回已提交任务）</span></button>
+              <p class="fine" id="genNote">AI 正在为你布光并排版，通常需 25–45 秒；你可以先去改信息，后台会继续出图。</p>
+              <button class="btn btn-outline btn-wide" id="cancel" type="button"><span>先去改信息（后台继续出图）</span></button>
             </div>
 
             <!-- 阶段 3：结果与导出 -->
@@ -371,7 +377,7 @@
             <div class="pane-head">
               <div>
                 <h2>四套规格全览（按真实导出比例排列）</h2>
-                <p class="sub-text">点击任意卡片可直接跳回工作台放大预览或单独下载</p>
+                <p class="sub-text">各规格均可单独打开大图，核对构图后再下载</p>
               </div>
             </div>
             <ul class="proofs" id="proofs"></ul>
@@ -382,7 +388,7 @@
                 <h2 id="compareSelected">原片与当前规格对照</h2>
                 <p class="sub-text">左右拖动滑块对比原片与场景包装后的视觉差异</p>
               </div>
-              <button type="button" class="btn btn-sm btn-primary" id="compareToStudio">去工作台编辑</button>
+              <div class="inline-actions"><button type="button" class="btn btn-sm btn-outline" id="compareZoomBtn">查看大图</button><button type="button" class="btn btn-sm btn-primary" id="compareToStudio">去工作台编辑</button></div>
             </div>
             <div class="compare-top-grid">
               <div class="ba" id="ba" style="--pos:50%">
@@ -500,6 +506,39 @@
       <button class="btn btn-primary btn-wide" id="ulGo" type="submit" value="go"><span>确认解锁</span></button>
     </div>
   </form>
+</dialog>
+
+<!-- 高清大图缩放查看器 -->
+<dialog class="lightbox-dlg" id="lightboxDlg" aria-labelledby="lbTitle">
+  <div class="lb-head">
+    <div class="lb-title-group">
+      <h2 id="lbTitle">美团商品主图</h2>
+      <span class="lb-spec-badge" id="lbSpecInfo">1600 × 1200 px</span>
+    </div>
+    <div class="lb-specs" id="lbSpecs" role="group" aria-label="切换规格预览"></div>
+    <div class="lb-head-actions">
+      <button type="button" class="btn btn-xs lb-btn" id="lbRawToggle" aria-pressed="false">原片</button>
+      <button type="button" class="btn btn-xs lb-btn" id="lbFitBtn" aria-pressed="false">铺满裁切</button>
+      <button type="button" class="btn btn-xs lb-btn" id="lbAiSource" aria-pressed="false" hidden>AI 源图</button>
+      <button type="button" class="btn btn-xs btn-primary" id="lbDownload">下载这张</button>
+    </div>
+    <button type="button" class="btn btn-xs lb-btn lb-close" id="lbClose" autofocus aria-label="关闭大图查看">关闭</button>
+  </div>
+  <p id="lbDownloadNote" class="lb-download-note" role="status"></p>
+  <div class="lb-stage" id="lbStage" tabindex="0" aria-label="图片查看区，可用方向键移动放大的画面">
+    <div class="lb-pan" id="lbPan">
+      <canvas id="lbCanvas" width="1600" height="1200" aria-label="高清大图预览"></canvas>
+    </div>
+  </div>
+  <div class="lb-dock" aria-label="缩放控制">
+    <button type="button" class="lb-tool" id="lbZoomOut" aria-label="缩小">−</button>
+    <span class="lb-zoom-val" id="lbZoomLabel">100%</span>
+    <button type="button" class="lb-tool" id="lbZoomIn" aria-label="放大">+</button>
+    <span class="lb-sep" aria-hidden="true"></span>
+    <button type="button" class="lb-tool lb-tool-text" id="lbZoomFit">适配窗口</button>
+    <button type="button" class="lb-tool lb-tool-text" id="lbZoom200">200%</button>
+    <span class="lb-hint" id="lbHint">滚轮或双指缩放 · 放大后可拖动图片</span>
+  </div>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
