@@ -3,17 +3,29 @@ import assert from 'node:assert/strict';
 import worker, { createPasswordHash } from '../worker/index.mjs';
 
 class Database {
+  requests = new Map();
   rows = new Map();
   images = new Map();
   calls = 0;
   publicCalls = 0;
+  async batch(statements) {
+    const rows=structuredClone(this.rows),requests=structuredClone(this.requests);
+    try {const results=[];for(const st of statements) {const r=await st.first();results.push({results:r?[r]:[]});}return results;}
+    catch(e){this.rows=rows;this.requests=requests;throw e;}
+  }
   prepare(sql) {
     return { bind: (...args) => ({
       first: async () => {
+        if(sql.includes('INSERT INTO generation_requests')) {if(this.requests.has(args[0]))return null;this.requests.set(args[0],{fingerprint:args[1]});return {id:args[0]};}
+        if(sql.includes('UPDATE generation_requests SET response')) {
+          if(args.length>3 && this.rows.get(args[3])?.lease_until!==args[4])return null;
+          Object.assign(this.requests.get(args[2]),{response:args[0],status:args[1]});return {id:args[2]};
+        }
+        if(sql.includes('SELECT fingerprint,response,status'))return this.requests.get(args[0]);
         if (sql.includes('INSERT INTO quota')) {
-          const [key,until,now] = args;
+          const [key,until,now,lower,upper] = args;
           const row=this.rows.get(key)||{uses:0,lease_until:0};
-          if(row.uses>=3||row.lease_until>=now)return null;
+          if(row.uses>=3||row.lease_until>=now||[...this.requests].some(([id,r])=>id>=lower&&id<upper&&r.status===202))return null;
           row.lease_until=until;this.rows.set(key,row);
           return {...row};
         }
@@ -30,6 +42,8 @@ class Database {
         return null;
       },
       run: async () => {
+        if(sql.includes('DELETE FROM generation_requests WHERE id='))this.requests.delete(args[0]);
+        if(sql.includes('UPDATE generation_requests SET response'))Object.assign(this.requests.get(args[2]),{response:args[0],status:args[1]});
         if (sql.includes('UPDATE quota SET lease_until')) {const row=this.rows.get(args[0]);if(row?.lease_until===args[1])row.lease_until=0;}
         if (sql.includes('INSERT INTO rendered_images')) this.images.set(args[0],{source:args[1],visitor:args[2],expires_at:args[3]});
       }
@@ -129,7 +143,7 @@ test('failed release has stable response and expired lease restores availability
   e.DB.prepare=original;
   const now=Date.now;
   try {
-    Date.now=()=>now()+241000;
+    Date.now=()=>now()+361000;
     const retry=await worker.fetch(request('/api/generate',facts),e,{fetch:model});
     assert.equal(retry.status,200);
     assert.equal([...e.DB.rows.values()][0].uses,1);
@@ -277,4 +291,52 @@ test('a full package reserves budget for its worst case of three model calls', a
   assert.equal(r.status,429);
   assert.equal((await r.json()).code,'PUBLIC_BUDGET_EXCEEDED');
   assert.equal(calls,0);
+});
+
+test('offer is validated and returned unchanged as a fact', async()=>{
+ const e=await env();
+ const invalid=await worker.fetch(request('/api/generate',{...facts,offer:123}),e,{fetch:model});
+ assert.equal(invalid.status,400);
+ const offer='仅周一到店，第二杯半价；截止2026-12-31';
+ const result=await worker.fetch(request('/api/generate',{...facts,offer}),e,{fetch:model});
+ const body=await result.json(); assert.equal(body.offer,offer);assert.equal(body.currency,'CNY');
+});
+
+test('requestId replay returns stored output without a second model call or charge',async()=>{
+ const e=await env();let calls=0;const fetch=async()=>{calls++;return model();};
+ const data={...facts,requestId:'request-id-replay-0001'};
+ const a=await worker.fetch(request('/api/generate',data),e,{fetch});
+ const b=await worker.fetch(request('/api/generate',data),e,{fetch});
+ assert.deepEqual(await a.json(),await b.json());assert.equal(calls,1);
+ const c=await worker.fetch(request('/api/generate',{...data,price:'30'}),e,{fetch});assert.equal(c.status,409);
+});
+
+test('published copy deterministically preserves price shop and full offer',async()=>{
+ const e=await env(),offer='仅周一到店，第二杯半价，2026-12-31截止';
+ const r=await worker.fetch(request('/api/generate',{...facts,offer}),e,{fetch:model});const b=await r.json();
+ assert.ok(b.detail.includes(offer));assert.ok(b.detail.includes('CNY ¥28.00'));assert.ok(b.detail.includes(facts.shop));
+});
+
+test('rate limited requestId can be retried after window reset',async()=>{
+ const e=await env();e.DB.calls=6;const data={...facts,requestId:'rate-retry-request-0001'};
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch:model})).status,429);
+ e.DB.calls=0;
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch:model})).status,200);
+});
+test('unbilled model failure requestId can retry successfully',async()=>{
+ const e=await env(),data={...facts,requestId:'model-retry-request-0001'};
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch:async()=>new Response('',{status:500})})).status,502);
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch:model})).status,200);
+});
+
+
+test('settlement failure retries recorded result without another upstream call',async()=>{
+ const e=await env(),data={...facts,requestId:'settle-retry-request-0001'};let calls=0;
+ const fetch=async()=>{calls++;return model();};const batch=e.DB.batch.bind(e.DB);
+ e.DB.batch=async()=>{throw Error('transaction unavailable')};
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch})).status,503);
+ assert.equal([...e.DB.rows.values()][0].uses,0);
+ e.DB.batch=batch;
+ assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch})).status,200);
+ assert.equal(calls,1);assert.equal([...e.DB.rows.values()][0].uses,1);
 });

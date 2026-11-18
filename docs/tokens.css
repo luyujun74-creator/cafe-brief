@@ -1,67 +1,116 @@
-/* Café Brief 设计令牌。工程可直接引入。所有语义色由 data-roast 决定，组件内不要写死色值。
-   对比度已用 WCAG 公式核算，结果见 ux-spec.md 第 5 节。 */
-@font-face {
-  font-family: "CB Display";
-  src: url("assets/SmileySans-Oblique.ttf.woff2") format("woff2");
-  font-display: swap;
-}
+/* Café Brief · 腾讯风格工作台设计令牌（参考 TDesign / 腾讯文档 / 腾讯云控制台）
+   1. 移除 1.1 MB 外部字体阻塞，全站使用系统无衬线字体，首屏零字体请求瞬时渲染
+   2. 界面采用轻导航轨 + 咖啡摄影台环境光 + 腾讯蓝主色
+   3. data-roast="1..5" 作用于海报色板与低透明度摄影台光晕，不染黑整个界面 */
 
 :root {
-  /* 字体 */
-  --font-display: "CB Display", "PingFang SC", "Noto Sans SC", sans-serif;
-  --font-ui: "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 字体：系统原生无衬线，加载耗时 0ms */
+  --font-ui: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
 
-  /* 字号，手机 / 桌面在组件里用 clamp 取值。输入框不得低于 16px，否则 iOS 聚焦时会缩放页面 */
-  --fs-12: .75rem;
-  --fs-14: .875rem;
-  --fs-16: 1rem;
-  --fs-18: 1.125rem;
-  --fs-22: 1.375rem;
-  --fs-30: 1.875rem;
-  --fs-40: 2.5rem;
-  --fs-56: 3.5rem;
-  --fs-hero: clamp(4rem, 15.5vw, 13.5rem);
-  --fs-section: clamp(2.5rem, 7vw, 5.5rem);
+  /* 腾讯风格色彩体系 */
+  --bg-app: #F2F5FA;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F7F9FC;
+  --bg-hover: #EDF3FD;
+  --bg-input: #F8FAFD;
+  --bg-input-focus: #FFFFFF;
 
-  /* 间距，4 基数 */
+  --border: #DEE5EF;
+  --border-strong: #C5D0DF;
+
+  --brand: #0052D9;
+  --brand-hover: #003CAB;
+  --brand-active: #002F87;
+  --brand-soft: #EAF2FF;
+  --brand-soft-border: #B7CFFF;
+
+  --text-1: #182638;
+  --text-2: #455568;
+  --text-3: #4D5D70;
+  --on-brand: #FFFFFF;
+
+  --ok: #00A870;
+  --ok-bg: #E8F8F2;
+  --ok-border: #A8E5CF;
+  --warn: #ED7B2F;
+  --warn-bg: #FFF3E8;
+  --warn-border: #FCD5B5;
+  --err: #D54941;
+  --err-bg: #FDECEE;
+  --err-border: #F7C2BF;
+
+  --coffee: #96643E; --coffee-soft: #F2E5D5; --amber: #B67B35;
+
+  /* 字号（紧凑专业级） */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+
+  /* 间距（4px 基数） */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
   --s-4: 16px;
-  --s-5: 24px;
-  --s-6: 32px;
-  --s-7: 48px;
-  --s-8: 72px;
-  --s-9: 112px;
-  --s-10: 168px;
-  --gutter: clamp(16px, 4vw, 48px);
+  --s-5: 20px;
+  --s-6: 24px;
 
-  /* 圆角分层：纸面最硬、控件中等、胶囊只给主操作和托盘 */
-  --r-sheet: 2px;
-  --r-control: 10px;
-  --r-tray: 20px;
+  /* 圆角 */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-pill: 999px;
+
+  /* 阴影 */
+  --shadow-card: 0 1px 2px rgba(27,44,70,.05), 0 10px 32px rgba(31,49,77,.07);
+  --shadow-pop: 0 12px 36px rgba(24,43,70,.16);
 
   /* 动效 */
   --t-fast: 120ms;
-  --t-base: 240ms;
-  --t-slow: 420ms;
-  --t-roast: 520ms;
-  --ease-out: cubic-bezier(.2, .8, .2, 1);
-  --ease-pour: cubic-bezier(.3, .7, .2, 1);
+  --t-base: 180ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* 尺寸 */
-  --tap: 44px;
-  --btn-h: 56px;
+  /* 布局尺寸 */
+  --sidebar-w: 76px;
+  --topbar-h: 56px;
 }
 
-/* 烘焙度：五档完整替换语义色，不是单一渐变滑动。避开了对比度不足的中间值 */
-[data-roast="1"] { --bg: #EBD3AC; --bg-2: #E0C393; --field: #F4E4C9; --ink: #2A1407; --soft: #5A3517; --line: #2A140740; --ai: #0B4F78; --err: #8A1C08; --on-ink: #EBD3AC; --plate-wall: #EFDCBE; --plate-floor: #D9BC8D; --plate-ink: #2A1407; }
-[data-roast="2"] { --bg: #CC8E48; --bg-2: #BC7E39; --field: #DBA263; --ink: #1C0C03; --soft: #37200C; --line: #1C0C0350; --ai: #06324F; --err: #5A0F02; --on-ink: #E6B478; --plate-wall: #D59A58; --plate-floor: #B4763A; --plate-ink: #1C0C03; }
-[data-roast="3"] { --bg: #8A4819; --bg-2: #7A3D12; --field: #9B5726; --ink: #FFF5E6; --soft: #F7DDBC; --line: #FFF5E650; --ai: #CDEBFA; --err: #FFD2C2; --on-ink: #6E340C; --plate-wall: #94511F; --plate-floor: #6B350F; --plate-ink: #FFF5E6; }
-[data-roast="4"] { --bg: #552A10; --bg-2: #47220C; --field: #673718; --ink: #FFF5E6; --soft: #E9CBA6; --line: #FFF5E640; --ai: #BCE4F8; --err: #FFB8A1; --on-ink: #47220C; --plate-wall: #5E3013; --plate-floor: #3B1C09; --plate-ink: #FFF5E6; }
-[data-roast="5"] { --bg: #24120A; --bg-2: #1A0C06; --field: #35200F; --ink: #FFF3E2; --soft: #CFB08C; --line: #FFF3E238; --ai: #AEDDF5; --err: #FFA88E; --on-ink: #24120A; --plate-wall: #2C170C; --plate-floor: #150904; --plate-ink: #FFF3E2; }
+/* 画布海报烘焙色调（1=浅烘 ~ 5=深烘），仅影响画布渲染色板 */
+[data-roast="1"] { --plate-wall: #EFDCBE; --plate-floor: #D9BC8D; --plate-ink: #2A1407; }
+[data-roast="2"] { --plate-wall: #D59A58; --plate-floor: #B4763A; --plate-ink: #1C0C03; }
+[data-roast="3"] { --plate-wall: #94511F; --plate-floor: #6B350F; --plate-ink: #FFF5E6; }
+[data-roast="4"] { --plate-wall: #5E3013; --plate-floor: #3B1C09; --plate-ink: #FFF5E6; }
+[data-roast="5"] { --plate-wall: #2C170C; --plate-floor: #150904; --plate-ink: #FFF3E2; }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --t-fast: 1ms; --t-base: 1ms; --t-slow: 1ms; --t-roast: 1ms; }
+  :root { --t-fast: 1ms; --t-base: 1ms; }
+}
+
+/* 摄影台环境光，不参与导出绘制 */
+html[data-roast="1"] { --stage-glow: rgba(225,191,143,.36); }
+html[data-roast="2"] { --stage-glow: rgba(209,160,94,.33); }
+html[data-roast="3"] { --stage-glow: rgba(168,108,54,.30); }
+html[data-roast="4"] { --stage-glow: rgba(127,76,41,.27); }
+html[data-roast="5"] { --stage-glow: rgba(92,51,31,.24); }
+
+/* Real photographic surfaces with restrained directional light. */
+html,html[data-scene="seam"] {
+ --scene-light: linear-gradient(155deg,rgba(255,255,255,.16),transparent 65%);
+ --scene-surface: url('assets/scene-seam.webp');
+}
+html[data-scene="wood"] {
+ --scene-light: linear-gradient(120deg,rgba(255,226,178,.12),transparent 65%);
+ --scene-surface: url('assets/scene-wood.webp');
+}
+html[data-scene="stone"] {
+ --scene-light: linear-gradient(132deg,rgba(255,255,255,.12),transparent 60%);
+ --scene-surface: url('assets/scene-stone.webp');
+}
+html[data-scene="window"] {
+ --scene-light: linear-gradient(122deg,rgba(255,246,223,.10),transparent 65%);
+ --scene-surface: url('assets/scene-window.webp');
 }

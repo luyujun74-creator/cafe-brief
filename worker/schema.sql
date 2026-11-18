@@ -3,3 +3,5 @@ CREATE TABLE IF NOT EXISTS unlock_attempts (visitor TEXT NOT NULL, hour INTEGER 
 CREATE TABLE IF NOT EXISTS generation_attempts (visitor TEXT NOT NULL, minute INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(visitor,minute));
 CREATE TABLE IF NOT EXISTS public_budget (day INTEGER PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS rendered_images (id TEXT PRIMARY KEY, source TEXT NOT NULL, visitor TEXT NOT NULL, expires_at INTEGER NOT NULL);
+
+CREATE TABLE IF NOT EXISTS generation_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created_at INTEGER NOT NULL, response TEXT, status INTEGER);

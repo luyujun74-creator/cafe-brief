@@ -1,216 +1,510 @@
 <!doctype html>
-<html lang="zh-CN" data-roast="4" data-view="home">
+<html lang="zh-CN" data-roast="4" data-view="studio">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#552A10">
-<title>Café Brief：手机拍一杯，上架一整套 · 商品包装工作台</title>
-<meta name="description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。小店商品包装工作台，手机上就能用。">
+<meta name="theme-color" content="#FFFFFF">
+<title>Café Brief · AI 商品包装工作台</title>
+<meta name="description" content="传一张商品照，填名称和价格，主图、方图、Banner、竖版海报和上架文案一次做好。">
 <link rel="canonical" href="https://luyujun74-creator.github.io/cafe-brief/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Café Brief">
-<meta property="og:title" content="Café Brief：手机拍一杯，上架一整套">
+<meta property="og:title" content="Café Brief · AI 商品包装工作台">
 <meta property="og:description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。">
 <meta property="og:url" content="https://luyujun74-creator.github.io/cafe-brief/">
 <meta property="og:image" content="https://luyujun74-creator.github.io/cafe-brief/assets/og-cover.jpg">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Café Brief：手机拍一杯，上架一整套">
-<meta name="twitter:description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="proto.css">
 </head>
 <body>
-<a class="skip" href="#main">跳到正文</a>
-<div class="svc-banner" id="svcBanner" data-state="probing" role="status">正在确认 AI 生成服务…</div>
+<a class="skip" href="#main">跳到工作区</a>
 
-<header class="top">
-  <a class="brand" href="#home">Café Brief</a>
-  <nav class="top-nav" aria-label="页面导航" data-only="home">
-    <a href="#kit">一整套有什么</a>
-    <a href="#phone">放进手机看</a>
-    <a href="#facts">价格和优惠</a>
-  </nav>
-  <span class="quota-chip" data-only="studio" id="quotaChip"></span>
-  <a class="btn btn-small btn-primary" href="#studio" data-only="home"><span>开始包装</span></a>
-  <a class="btn btn-small btn-ghost" href="#home" data-only="studio"><span>返回首页</span></a>
-</header>
-
-<main id="main">
-<!-- 首页 -->
-<div id="home" data-only="home">
-
-<section class="hero" aria-labelledby="heroTitle">
-  <h1 id="heroTitle" class="hero-title"><span>手机拍一杯，</span><span>上架一整套。</span></h1>
-  <div class="hero-cup" aria-hidden="true"><img id="heroCup" alt="" width="636" height="949"></div>
-  <div class="hero-foot">
-    <p class="hero-lede">传一张商品照，填名称和价格。主图、Banner、海报和上架文案一次做好，随时可改。</p>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="#studio"><span>上传商品照</span></a>
-      <a class="btn btn-text" href="#studio" id="trySample"><span>用示例试试</span></a>
+<div class="app-shell">
+  <!-- 左侧操作栏（多页面切换） -->
+  <aside class="sidebar" aria-label="功能导航">
+    <div class="sidebar-brand" aria-label="Café Brief 商品包装工作台" title="Café Brief">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 9h11v6a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5V9Z"/>
+          <path d="M16 10h2.5a2.5 2.5 0 0 1 0 5H16"/>
+          <path d="M8 4v2M12 4v2"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>Café Brief</strong>
+        <span>商品包装工作台</span>
+      </div>
     </div>
-    <div class="dial-host" data-dial="hero"></div>
-  </div>
-</section>
 
-<section class="kit-sec" id="kit" aria-labelledby="kitTitle">
-  <h2 id="kitTitle" class="sec-title">一次包装，四张图一段文案</h2>
-  <p class="sec-lede">拖动试试同一杯咖啡的前后变化。下面每张纸都按实际比例摆放，标的是导出像素。</p>
-  <div class="ba" id="ba" style="--pos:50%">
-    <canvas id="baAfter" width="1600" height="1200" aria-hidden="true"></canvas>
-    <div class="ba-before"><canvas id="baBefore" width="1600" height="1200" aria-hidden="true"></canvas></div>
-    <span class="ba-tag ba-tag-l">手机原片</span>
-    <span class="ba-tag ba-tag-r">示意效果</span>
-    <input class="ba-range" type="range" min="0" max="100" value="50" aria-label="拖动对比手机原片和示意效果">
-    <span class="ba-handle" aria-hidden="true"></span>
-  </div>
-  <ul class="proofs" id="proofs"></ul>
-</section>
+    <nav class="side-nav" id="sideNav" aria-label="工作台页面切换">
+      <div class="nav-group-label">创作中心</div>
+      <button type="button" class="nav-item is-active" data-nav="studio" aria-label="工作台 · 一键包装" aria-current="page">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/>
+          <rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/>
+        </svg>
+        <span>工作台</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="phone" aria-label="外卖手机预览">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="5" y="2.5" width="10" height="15" rx="2"/><path d="M8.5 14.5h3"/>
+        </svg>
+        <span>手机</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="compare" aria-label="四图对比与导出">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M10 4v12M7 10h6"/>
+        </svg>
+        <span>对比</span>
+      </button>
+      <div class="nav-group-label">规范与管理</div>
+      <button type="button" class="nav-item" data-nav="guide" aria-label="尺寸规范与说明">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="10" cy="10" r="7.5"/><path d="M10 9v4.5M10 6.5h.01"/>
+        </svg>
+        <span>规范</span>
+      </button>
+    </nav>
 
-<section class="phone-sec" id="phone" aria-labelledby="phoneTitle">
-  <div class="phone-copy">
-    <h2 id="phoneTitle" class="sec-title">顾客划到你时，只看一眼</h2>
-    <p class="sec-lede">外卖列表里的图往往只有拇指大小。每张图导出前，都能先放进手机界面看一眼。</p>
-    <div class="seg" role="radiogroup" aria-label="切换列表里的商品图">
-      <label><input type="radio" name="ph" value="raw"><span>手机原片</span></label>
-      <label><input type="radio" name="ph" value="pack" checked><span>包装后</span></label>
+    <!-- 侧边栏底部：清爽的 AI 服务状态卡（不占顶栏，不卡死“加载中”） -->
+    <div class="sidebar-footer">
+      <div class="svc-card" id="svcCard" data-state="ready">
+        <div class="svc-row" id="svcToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="svcDetails" aria-label="展开服务状态详情">
+          <span class="svc-dot" aria-hidden="true"></span>
+          <span class="svc-banner" id="svcBanner" data-state="ready" role="status">工作台已就绪</span>
+        </div>
+        <div id="svcDetails" hidden>
+        <p class="svc-sub" id="svcSub">豆包文案 + Seedream 场景引擎</p>
+        <div class="svc-actions">
+          <button type="button" class="btn-link" id="retryConnect" hidden>重试连接</button>
+          <button type="button" class="btn-link" id="openUnlockSide">额度与解锁</button>
+        </div>
+        </div>
+      </div>
     </div>
-    <p class="fine">手机界面为示意，不是平台真实页面。</p>
+  </aside>
+
+  <!-- 右侧主内容区 -->
+  <div class="app-main">
+    <!-- 紧凑顶栏 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="topbar-title" id="viewTitle">工作台 · 一键包装</h1>
+        <span class="topbar-desc" id="viewDesc">上传 1 张商品照，一次生成 4 套外卖与门店规格图及上架文案</span>
+      </div>
+      <div class="topbar-right">
+        <span class="quota-chip" id="quotaChip">工作台就绪</span>
+        <button type="button" class="btn btn-sm btn-outline" id="trySample">载入示例</button>
+        <button type="button" class="btn btn-sm btn-ghost-blue" id="topUnlockBtn">解锁不限次</button>
+      </div>
+    </header>
+
+    <main id="main" class="workspace-body">
+      <!-- 页面 1：工作台（默认首屏，集中紧凑双栏） -->
+      <section class="page-view" id="view-studio" data-page="studio" aria-label="商品包装工作台">
+        <div id="studio" class="studio" data-phase="empty">
+          <!-- 左中：画布预览区 -->
+          <div class="stage-card">
+            <div class="stage-toolbar">
+              <div class="spec-tabs" id="specTabs" role="tablist" aria-label="切换预览规格">
+                <button type="button" class="spec-tab is-active" data-spec="main">美团主图 <small>1600×1200</small></button>
+                <button type="button" class="spec-tab" data-spec="square">方图 <small>1080×1080</small></button>
+                <button type="button" class="spec-tab" data-spec="banner">店铺 Banner <small>1440×480</small></button>
+                <button type="button" class="spec-tab" data-spec="poster">竖版海报 <small>1080×1440</small></button>
+              </div>
+              <div class="stage-tools">
+                <span class="stage-note" id="stageNote">上传商品照后可实时预览文字与色调</span>
+                <button class="btn btn-xs btn-outline hold" id="holdCompare" type="button" hidden>按住看原片</button>
+              </div>
+            </div>
+
+            <div class="stage-viewport">
+              <span class="stage-scene" id="stageScene" role="status" aria-live="polite"></span>
+              <div class="stage-frame" id="stageFrame">
+                <canvas id="stageCanvas" width="1080" height="1440" aria-label="当前画面预览"></canvas>
+                <div class="drop-overlay" id="dropOverlay">
+                  <button class="drop" id="drop" type="button">
+                    <span class="drop-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 16V4m0 0-4 4m4-4 4 4"/>
+                        <path d="M4 16.5v1.5A2 2 0 0 0 6 20h12a2 2 0 0 0 2-2v-1.5"/>
+                      </svg>
+                    </span>
+                    <b>点击上传或拖入商品照片</b>
+                    <span>支持 JPG、PNG、WebP，10 MB 以内（建议清晰拍到杯身）</span>
+                  </button>
+                  <div class="drop-sample-row">
+                    <span>没有照片？试用示例：</span>
+                    <button type="button" class="btn btn-xs btn-soft" id="dropSampleBtn">冰奶油拿铁</button><div class="sample-presets"><button type="button" data-sample="seam">影棚</button><button type="button" data-sample="wood">木台</button><button type="button" data-sample="window">窗边</button></div>
+                  </div>
+                </div>
+                <div class="gen-veil" id="genVeil" aria-hidden="true"></div>
+              </div>
+            </div>
+
+            <ul class="strip" id="strip" aria-label="一套四张规格缩略图"></ul>
+          </div>
+
+          <!-- 右侧：参数与生成控制面板 -->
+          <div class="control-card" aria-label="包装设置与结果">
+            <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+
+            <!-- 阶段 1：编辑信息 -->
+            <div class="pane" id="paneBrief">
+              <div class="pane-head">
+                <h2>商品信息与风格</h2>
+                <button type="button" class="btn-link" id="pickPhotoBtn">更换照片</button>
+              </div>
+
+              <p class="photo-msg" id="photoMsg" role="status"></p>
+
+              <div class="form-grid">
+                <label class="field">
+                  <span>商品名 <em>*</em></span>
+                  <input id="iName" maxlength="40" autocomplete="off" placeholder="如：冰奶油拿铁">
+                </label>
+                <label class="field">
+                  <span>售价（元）<em>*</em></span>
+                  <input id="iPrice" inputmode="decimal" placeholder="18">
+                </label>
+              </div>
+
+              <fieldset class="scenes">
+                <legend>拍摄场景</legend>
+                <div id="scenes"></div>
+              </fieldset>
+
+              <div class="dial-host" data-dial="studio"></div>
+
+              <details id="moreBriefDetails" class="more-brief">
+                <summary><span>更多商品信息<small>店名 · 活动 · 卖点</small></span><span id="moreBriefCount">选填</span></summary>
+                <div class="more-brief-body">
+                <label class="field">
+                  <span>店名（选填）</span>
+                  <input id="iShop" maxlength="16" placeholder="如：拾叶咖啡">
+                </label>
+                <label class="field">
+                  <span>优惠活动（选填）</span>
+                  <input id="iOffer" maxlength="120" placeholder="不填则不显示">
+                </label>
+
+              <label class="field">
+                <span>核心卖点（选填，逗号隔开）</span>
+                <input id="iHigh" maxlength="120" placeholder="例如：燕麦奶，埃塞现磨豆，低糖少冰">
+              </label>
+
+              <div class="quick-tags" id="quickTags" aria-label="待确认卖点"><span>确认属实后添加：</span><button type="button">燕麦奶</button><button type="button">现磨咖啡豆</button><button type="button">低糖</button></div>
+
+                </div>
+              </details>
+
+              <button type="button" class="btn btn-xs btn-outline" id="lateResult" hidden>查看上一稿</button><button type="button" class="btn btn-xs btn-outline" id="sampleUndo" hidden>撤销示例</button><p class="field-err" id="briefErr" role="alert"></p>
+
+              <div class="cta-dock">
+                <button class="btn btn-primary btn-wide" id="go" type="button">
+                  <span>一键包装（生成 4 图 + 文案）</span>
+                </button>
+                <p class="fine">生成 1 次消耗 1 次额度，修改文字与价格不扣次数。</p>
+              </div>
+            </div>
+
+            <!-- 阶段 2：生成中 -->
+            <div class="pane" id="paneGen" hidden>
+              <div class="pane-head">
+                <h2>正在生成整套素材</h2>
+                <span class="badge badge-blue" id="genTimer">进行中</span>
+              </div>
+              <ol class="steps" id="steps" aria-live="polite"></ol>
+              <p class="fine" id="genNote">请求处理中，耗时随服务负载变化；离开等待不会撤回已提交任务。</p>
+              <button class="btn btn-outline btn-wide" id="cancel" type="button"><span>离开等待（不会撤回已提交任务）</span></button>
+            </div>
+
+            <!-- 阶段 3：结果与导出 -->
+            <div class="pane" id="paneResult" hidden>
+              <div class="pane-head">
+                <div>
+                  <h2 id="resTitle">美团商品主图</h2>
+                  <p class="sheet-spec" id="resSpec">1600 × 1200 像素 JPG</p>
+                </div>
+                <button type="button" class="btn btn-xs btn-outline" id="again"><span>再来一版</span></button>
+              </div>
+
+              <div class="seg seg-wide" role="radiogroup" aria-label="画面版本">
+                <label><input type="radio" name="fid" value="scene" checked><span>AI 场景</span></label>
+                <label><input type="radio" name="fid" value="raw"><span>原片版</span></label>
+              </div>
+              <p class="fid-note" id="fidNote"></p>
+
+              <div class="ver-row">
+                <span class="ver-label">历史版本</span>
+                <div class="vers" id="vers" role="group" aria-label="历史版本"></div>
+              </div>
+
+              <details class="copy-box" open>
+                <summary>
+                  <span>上架文案</span>
+                  <button class="btn btn-xs btn-soft" id="copyBtn" type="button"><span>复制文案</span></button>
+                </summary>
+                <p class="sample-copy" id="resCopy" contenteditable="true" role="textbox" aria-label="编辑上架文案"></p><div><button type="button" class="btn btn-xs btn-link" id="copyReset">重置文案</button><button type="button" class="btn btn-xs btn-link" id="copyUndo">撤销编辑</button></div>
+                <p class="fine" id="copyNote"></p>
+              </details>
+
+              <div class="cta-dock result-export">
+              <label class="confirm" id="confirmRow">
+                <input type="checkbox" id="cupOk">
+                <span>已核对：杯型、配料与分量和我实际售卖的一致</span>
+              </label>
+
+
+                <button class="btn btn-primary btn-wide" id="exportAll" type="button"><span>打包下载全部 4 张和文案</span></button>
+                <p class="export-hint" id="exportHint" role="status"></p>
+              </div>
+
+              <div class="res-more">
+                <button class="btn btn-xs btn-link" id="exportOne" type="button"><span>仅下载当前图</span></button>
+                <button class="btn btn-xs btn-link" id="showPhone" type="button"><span>在手机预览中查看</span></button>
+                <button class="btn btn-xs btn-link" id="restart" type="button"><span>改信息重做</span></button>
+              </div>
+            </div>
+
+            <!-- 阶段 4：异常恢复 -->
+            <div class="pane pane-error" id="paneError" hidden>
+              <div class="error-box">
+                <h2 id="errTitle">生成遇到一点问题</h2>
+                <p id="errBody"></p>
+              </div>
+              <button class="btn btn-primary btn-wide" id="errRetry" type="button"><span>重新包装</span></button>
+              <button class="btn btn-outline btn-wide" id="errBack" type="button"><span>返回修改信息</span></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 页面 2：外卖手机端预览 -->
+      <section class="page-view" id="view-phone" data-page="phone" hidden aria-label="外卖手机预览">
+        <div class="two-col-page">
+          <div class="panel-card">
+            <div class="pane-head">
+              <h2>顾客列表视角检查</h2>
+              <span class="badge badge-blue">拇指尺寸对照</span>
+            </div>
+            <p class="sub-text">外卖列表里的商品主图通常只有缩略图大小。在这里直接对比“手机原片”和“包装后效果”，确认标题、价格和卖点一眼可辨。</p>
+
+            <div class="field-block">
+              <span class="block-label">切换展示状态</span>
+              <div class="seg seg-wide" role="radiogroup" aria-label="切换列表里的商品图">
+                <label><input type="radio" name="ph" value="raw"><span>手机原片</span></label>
+                <label><input type="radio" name="ph" value="pack" checked><span>包装后效果</span></label>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-grid">
+              <label class="field">
+                <span>实时改名预览</span>
+                <input id="phInputName" maxlength="40" placeholder="冰奶油拿铁">
+              </label>
+              <label class="field">
+                <span>实时改价预览（元）</span>
+                <input id="phInputPrice" inputmode="decimal" placeholder="18">
+              </label>
+              <label class="field">
+                <span>店铺名称</span>
+                <input id="phInputShop" maxlength="16" placeholder="拾叶咖啡">
+              </label>
+              <label class="field">
+                <span>当前促销</span>
+                <input id="phInputOffer" maxlength="120" placeholder="可选：第二杯半价">
+              </label>
+            </div>
+
+            <p class="fine">此处修改会与「工作台」实时同步。手机外壳仅为排版示意，实际展示以美团 / 小程序商家后台为准。</p>
+            <div class="inline-actions">
+              <button type="button" class="btn btn-primary" id="phoneToStudio">返回工作台生成或下载</button>
+            </div>
+          </div>
+
+          <div class="panel-card phone-stage-card">
+            <div class="phone-mockup">
+              <div class="phone-notch" aria-hidden="true"></div>
+              <div class="phone-screen">
+                <div class="phone-status-bar">
+                  <span>9:41</span>
+                  <span>外送门店 · 营业中</span>
+                </div>
+                <canvas id="phBanner" width="720" height="240" aria-label="店铺Banner在手机端的效果"></canvas>
+                <div class="ph-shop-head">
+                  <strong id="phShopTitle">拾叶咖啡</strong>
+                  <span>配送与销量以实际商家后台为准</span>
+                </div>
+                <div class="ph-row is-you">
+                  <canvas id="phThumb" width="400" height="300" aria-label="商品主图在手机列表中的效果"></canvas>
+                  <div class="ph-meta">
+                    <b id="phName">冰奶油拿铁</b>
+                    <small id="phShopSub">拾叶咖啡 · 现磨冷萃</small>
+                    <span class="ph-offer-tag" id="phOfferTag" hidden></span>
+                    <div class="ph-price-row">
+                      <em id="phPrice">¥18</em>
+                      <span class="ph-add-btn" aria-hidden="true">+</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="ph-row is-skeleton" aria-hidden="true">
+                  <i></i>
+                  <div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div>
+                </div>
+                <div class="ph-row is-skeleton" aria-hidden="true">
+                  <i></i>
+                  <div><b class="ph-blank w2"></b><small class="ph-blank w1"></small><em class="ph-blank w3"></em></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 页面 3：四图总览与对比导出 -->
+      <section class="page-view" id="view-compare" data-page="compare" hidden aria-label="四图对比与导出">
+        <div class="compare-layout">
+          <div class="panel-card">
+            <div class="pane-head">
+              <div>
+                <h2>四套规格全览（按真实导出比例排列）</h2>
+                <p class="sub-text">点击任意卡片可直接跳回工作台放大预览或单独下载</p>
+              </div>
+            </div>
+            <ul class="proofs" id="proofs"></ul>
+          </div>
+          <div class="panel-card">
+            <div class="pane-head">
+              <div>
+                <h2 id="compareSelected">原片与当前规格对照</h2>
+                <p class="sub-text">左右拖动滑块对比原片与场景包装后的视觉差异</p>
+              </div>
+              <button type="button" class="btn btn-sm btn-primary" id="compareToStudio">去工作台编辑</button>
+            </div>
+            <div class="compare-top-grid">
+              <div class="ba" id="ba" style="--pos:50%">
+                <canvas id="baAfter" width="1200" height="900" aria-hidden="true"></canvas>
+                <div class="ba-before"><canvas id="baBefore" width="1200" height="900" aria-hidden="true"></canvas></div>
+                <span class="ba-tag ba-tag-l">手机原片</span>
+                <span class="ba-tag ba-tag-r">包装效果</span>
+                <input class="ba-range" type="range" min="0" max="100" value="50" aria-label="拖动对比手机原片和包装效果">
+                <span class="ba-handle" aria-hidden="true"></span>
+              </div>
+
+              <div class="facts-panel">
+                <h3>AI 文案事实审核区</h3>
+                <p class="sub-text">价格与活动严格按你填写内容输出；蓝色虚线标签为 AI 补充修饰词，点击决定是否保留到导出文案中：</p>
+                <div class="facts-inputs">
+                  <label class="field"><span>售价（元，同步至工作台）</span><input id="fPrice" inputmode="decimal" value="18"></label>
+                  <label class="field"><span>活动（同步至工作台）</span><input id="fOffer" maxlength="120" placeholder="例如：第二杯半价"></label>
+                </div>
+                <p class="sample-copy" id="factsCopy"></p>
+                <p class="fine" id="factsCopyNote">点击蓝色标签可切换“保留 / 不保留”，仅保留项会进入导出文案。</p>
+                <div class="compare-export result-export">
+                  <label class="confirm"><input id="compareConfirm" type="checkbox">已核对商品和事实</label>
+                  <div class="compare-export-actions">
+                    <button class="btn btn-outline" id="compareOne">下载当前图</button>
+                    <button class="btn btn-primary" id="compareAll">打包下载全部</button>
+                  </div>
+                </div>
+                <div class="facts-poster-wrap">
+                  <canvas id="factsPoster" width="600" height="800" aria-label="随输入实时更新的竖版海报"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+        </div>
+      </section>
+
+      <!-- 页面 4：尺寸规范与说明 -->
+      <section class="page-view" id="view-guide" data-page="guide" hidden aria-label="尺寸规范与说明">
+        <div class="guide-grid">
+          <div class="panel-card">
+            <h2>四步完成全套上新素材</h2>
+            <ol class="guide-steps">
+              <li><b>1. 上传 1 张商品照</b><span>支持手机随手拍的咖啡/饮品/烘焙照片（JPG/PNG/WebP，10 MB 内），建议杯身完整清晰。</span></li>
+              <li><b>2. 填写真实商品信息</b><span>填入商品名、售价、可选店名与真实优惠活动，画面文字层由浏览器精准绘制，绝不乱写价格。</span></li>
+              <li><b>3. 选择场景与烘焙色调</b><span>支持纯色影棚、木吧台、石材台面、窗边光 4 种场景及 5 档烘焙色调，一键触发豆包 + Seedream 生成。</span></li>
+              <li><b>4. 核对并打包下载</b><span>生成后可在工作台和手机预览页检查细节，勾选“与实际一致”后一键打包 ZIP 下载 4 张图和文案。</span></li>
+            </ol>
+          </div>
+
+          <div class="panel-card">
+            <h2>交付规格与像素标准</h2>
+            <table class="spec-table">
+              <thead>
+                <tr><th>素材名称</th><th>导出尺寸</th><th>格式 / 上限</th><th>适用场景</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>美团商品主图</td><td>1600 × 1200 px</td><td>JPG ≤ 5 MB</td><td>美团 / 饿了么菜品主图</td></tr>
+                <tr><td>正方形主图</td><td>1080 × 1080 px</td><td>JPG ≤ 5 MB</td><td>自有小程序、微信小店</td></tr>
+                <tr><td>店铺 Banner</td><td>1440 × 480 px</td><td>JPG ≤ 5 MB</td><td>门店顶部横幅海报位</td></tr>
+                <tr><td>竖版宣传海报</td><td>1080 × 1440 px</td><td>JPG ≤ 5 MB</td><td>朋友圈、小红书、门店立屏</td></tr>
+              </tbody>
+            </table>
+            <p class="fine" style="margin-top:12px;">注：尺寸按公开资料预设，上传时请以各平台商家后台最新要求为准。本工具仅用于辅助商拍排版，不代表任何外卖平台。</p>
+          </div>
+
+          <div class="panel-card">
+            <h2>额度与连接状态</h2>
+            <p class="sub-text" id="guideStatusText">当前连接状态将同步显示于左侧栏底部。</p>
+            <div class="inline-actions" style="margin-top:12px;">
+              <button type="button" class="btn btn-primary" id="guideUnlockBtn">输入解锁密码（不限次）</button>
+              <button type="button" class="btn btn-outline" id="guideRetryBtn">检测服务端连接</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
-  <div class="phone" aria-hidden="true">
+</div>
+
+<!-- 手机快捷弹窗（兼容工作台“在手机预览中查看”及既有测试） -->
+<dialog class="tray tray-phone" id="phoneDlg" aria-labelledby="pdTitle">
+  <div class="tray-head">
+    <h2 id="pdTitle">手机列表效果快览</h2>
+    <button class="btn-link" type="button" id="pdClose">关闭</button>
+  </div>
+  <div class="phone-mockup phone-mini">
     <div class="phone-screen">
-      <canvas id="phBanner" width="720" height="240"></canvas>
-      <div class="ph-row is-you"><canvas id="phThumb" width="400" height="300"></canvas><div><b id="phName">冰奶油拿铁</b><small>拾叶咖啡</small><em id="phPrice">¥18</em></div></div>
-      <div class="ph-row"><i></i><div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div></div>
-      <div class="ph-row"><i></i><div><b class="ph-blank w2"></b><small class="ph-blank w1"></small><em class="ph-blank w3"></em></div></div>
+      <canvas id="pdBanner" width="720" height="240"></canvas>
+      <div class="ph-row is-you">
+        <canvas id="pdThumb" width="400" height="300"></canvas>
+        <div class="ph-meta"><b id="pdName"></b><small id="pdShop"></small><em id="pdPrice"></em></div>
+      </div>
+      <div class="ph-row is-skeleton"><i></i><div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div></div>
     </div>
   </div>
-</section>
-
-<section class="facts-sec" id="facts" aria-labelledby="factsTitle">
-  <div class="facts-copy">
-    <h2 id="factsTitle" class="sec-title">价格和优惠，只写你填的</h2>
-    <p class="sec-lede">改一下价格试试，海报立刻跟着变。优惠留空，画面上就不会出现优惠。</p>
-    <label class="field"><span>售价（元）</span><input id="fPrice" inputmode="decimal" value="18"></label>
-    <label class="field"><span>活动（可不填）</span><input id="fOffer" maxlength="24" placeholder="例如：周一到周五第二杯半价"></label>
-    <h3 class="ai-key-title">AI 写的话，你来决定留不留</h3>
-    <p class="sample-copy" id="factsCopy"></p>
-    <p class="fine">这是交互示例：蓝色虚线代表尚未确认的描述。点一下保留；不保留的不会进入导出文案。</p>
-  </div>
-  <div class="facts-poster"><canvas id="factsPoster" width="810" height="1080" aria-label="跟随输入实时更新的竖版海报"></canvas></div>
-</section>
-
-<section class="close-sec">
-  <h2 class="sec-title">下一杯，让它先被看见。</h2>
-  <a class="btn btn-primary" href="#studio"><span>上传商品照</span></a>
-  <footer class="foot">
-    <p>尺寸按公开资料预设，上传时请以商家后台提示为准。Café Brief 不保证通过平台审核，也不代表任何平台。</p>
-    <p>本页展示图由浏览器示意合成，店名和商品均为虚构。上传照片后的真实成品由豆包模型生成。</p>
-  </footer>
-</section>
-</div>
-
-<!-- 工作台 -->
-<div id="studio" class="studio" data-only="studio" data-phase="empty">
-  <section class="stage" aria-label="画布">
-    <div class="stage-frame" id="stageFrame">
-      <canvas id="stageCanvas" width="1080" height="1440" aria-label="当前画面预览"></canvas>
-      <button class="drop" id="drop" type="button"><b>把商品照拖到这里</b><span>或点击选择。JPG、PNG、WebP，10 MB 以内</span></button>
-      <div class="gen-veil" id="genVeil" aria-hidden="true"></div>
-      <span class="stage-note" id="stageNote"></span>
-      <button class="hold" id="holdCompare" type="button" hidden>按住看原片</button>
-    </div>
-    <ul class="strip" id="strip" aria-label="这一套的所有尺寸"></ul>
-  </section>
-
-  <section class="rail" aria-label="设置">
-    <div class="pane" id="paneBrief">
-      <h1 class="pane-title">这杯要怎么卖？</h1>
-      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
-      <p class="photo-msg" id="photoMsg" role="status"></p>
-      <label class="field"><span>商品名</span><input id="iName" maxlength="24" autocomplete="off" placeholder="例如：冰奶油拿铁"></label>
-      <div class="field-row">
-        <label class="field"><span>售价（元）</span><input id="iPrice" inputmode="decimal" placeholder="18"></label>
-        <label class="field"><span>店名（可不填）</span><input id="iShop" maxlength="16" placeholder="拾叶咖啡"></label>
-      </div>
-      <label class="field"><span>活动（可不填，只写真实活动）</span><input id="iOffer" maxlength="24" placeholder="不填就不出现优惠"></label>
-      <label class="field"><span>卖点（可不填，用逗号隔开）</span><input id="iHigh" maxlength="120" placeholder="例如：燕麦奶，现磨豆"></label>
-      <p class="field-err" id="briefErr" role="alert"></p>
-      <div class="dial-host" data-dial="studio"></div>
-      <fieldset class="scenes"><legend>场景</legend><div id="scenes"></div></fieldset>
-      <p class="fine">生成一次用掉 1 次，约需 1～2 分钟；改文字不扣次数。照片和文字会发送给豆包模型用于生成。</p>
-      <div class="cta-dock"><button class="btn btn-primary btn-wide" id="go" type="button"><span>一键包装</span></button></div>
-    </div>
-
-    <div class="pane" id="paneGen" hidden>
-      <h1 class="pane-title">正在包装</h1>
-      <ol class="steps" id="steps" aria-live="polite"></ol>
-      <p class="fine" id="genNote">通常需要 1～2 分钟，请不要关闭页面。</p>
-      <button class="btn btn-ghost btn-wide" id="cancel" type="button"><span>取消</span></button>
-    </div>
-
-    <div class="pane" id="paneResult" hidden>
-      <h1 class="pane-title" id="resTitle"></h1>
-      <p class="sheet-spec" id="resSpec"></p>
-      <div class="seg seg-wide" role="radiogroup" aria-label="这张图用哪个版本">
-        <label><input type="radio" name="fid" value="scene" checked><span>AI 场景</span></label>
-        <label><input type="radio" name="fid" value="raw"><span>原片版</span></label>
-      </div>
-      <p class="fid-note" id="fidNote"></p>
-      <div class="ver-row"><div class="vers" id="vers" role="group" aria-label="历史版本"></div><button class="btn btn-small btn-ghost" id="again" type="button"><span>再来一版</span></button></div>
-
-      <label class="confirm" id="confirmRow"><input type="checkbox" id="cupOk"><span>杯型、配料和分量都和我实际卖的一样</span></label>
-
-      <details class="copy-box" open>
-        <summary>上架文案</summary>
-        <p class="sample-copy" id="resCopy"></p>
-        <p class="fine" id="copyNote"></p>
-        <div class="copy-actions"><button class="btn btn-small btn-ghost" id="copyBtn" type="button"><span>复制文案</span></button></div>
-      </details>
-
-      <div class="cta-dock">
-        <button class="btn btn-primary btn-wide" id="exportAll" type="button"><span>下载全部</span></button>
-        <p class="export-hint" id="exportHint" role="status"></p>
-      </div>
-      <div class="res-more">
-        <button class="btn btn-text" id="exportOne" type="button"><span>只下载这张</span></button>
-        <button class="btn btn-text" id="showPhone" type="button"><span>放进手机看</span></button>
-        <button class="btn btn-text" id="restart" type="button"><span>改信息重新包装</span></button>
-      </div>
-    </div>
-
-    <div class="pane pane-error" id="paneError" hidden>
-      <h1 class="pane-title" id="errTitle"></h1>
-      <p id="errBody"></p>
-      <button class="btn btn-primary btn-wide" id="errRetry" type="button"><span>重新包装</span></button>
-      <button class="btn btn-text" id="errBack" type="button"><span>回去改信息</span></button>
-    </div>
-  </section>
-
-</div>
-</main>
-
-<dialog class="tray" id="unlock" aria-labelledby="ulTitle">
-  <form method="dialog" id="ulForm">
-    <h2 id="ulTitle">免费次数用完了</h2>
-    <p>输入解锁密码，就能继续生成，不再限次数。已生成的图不受影响，随时能下载。</p>
-    <label class="field"><span>解锁密码</span><input id="ulPwd" type="password" autocomplete="off" aria-describedby="ulErr"></label>
-    <p class="field-err" id="ulErr" role="alert"></p>
-    <button class="btn btn-primary btn-wide" id="ulGo" type="submit" value="go"><span>解锁</span></button>
-    <button class="btn btn-text" type="button" id="ulClose"><span>先不解锁</span></button>
-  </form>
+  <p class="fine">手机界面为示意效果，切换到左侧「外卖手机预览」可交互编辑。</p>
 </dialog>
 
-<dialog class="tray tray-phone" id="phoneDlg" aria-labelledby="pdTitle">
-  <h2 id="pdTitle">放进手机看</h2>
-  <div class="phone phone-mini"><div class="phone-screen"><canvas id="pdBanner" width="720" height="240"></canvas><div class="ph-row is-you"><canvas id="pdThumb" width="400" height="300"></canvas><div><b id="pdName"></b><small id="pdShop"></small><em id="pdPrice"></em></div></div><div class="ph-row"><i></i><div><b class="ph-blank w1"></b><small class="ph-blank w2"></small><em class="ph-blank w3"></em></div></div></div></div>
-  <p class="fine">手机界面为示意，不是平台真实页面。</p>
-  <button class="btn btn-ghost btn-wide" id="pdClose" type="button"><span>关闭</span></button>
+<!-- 解锁密码弹窗 -->
+<dialog class="tray" id="unlock" aria-labelledby="ulTitle">
+  <form method="dialog" id="ulForm">
+    <div class="tray-head">
+      <h2 id="ulTitle">解锁不限次数包装</h2>
+      <button class="btn-link" type="button" id="ulClose">关闭</button>
+    </div>
+    <p class="sub-text">免费体验次数用完后，输入授权解锁密码即可不限次数生成；已生成的图片可随时下载。</p>
+    <label class="field">
+      <span>解锁密码</span>
+      <input id="ulPwd" type="password" autocomplete="off" placeholder="请输入解锁密码" aria-describedby="ulErr">
+    </label>
+    <p class="field-err" id="ulErr" role="alert"></p>
+    <div class="inline-actions">
+      <button class="btn btn-primary btn-wide" id="ulGo" type="submit" value="go"><span>确认解锁</span></button>
+    </div>
+  </form>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="config.js"></script>
-<script src="assets/data.js"></script>
-<script src="app.js"></script>
+<script src="config.js" defer></script>
+<script src="app.js" defer></script>
 </body>
 </html>

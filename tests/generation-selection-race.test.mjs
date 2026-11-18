@@ -22,7 +22,7 @@ function harness(){
  const fid=[new Element('raw'),new Element('scene')];fid[0].value='raw';fid[1].value='scene';
  const scene=[new Element('wood')];scene[0].value='wood';
  let fetcher;
- const c={document:{documentElement:{},querySelector:element,querySelectorAll:s=>s==='#vers button'?element('#vers').children:s==='input[name=fid]'?fid:s==='input[name=scene]'?scene:[],createElement:()=>new Element('new'),createTextNode:s=>s},window:{scrollTo(){}},Image:class{constructor(){images.push(this)}async decode(){}},URL:{createObjectURL:()=> 'blob:fixture-'+(++objectId),revokeObjectURL:u=>revoked.push(u)},CB_ASSETS:{photo:'fake-photo'},Uint32Array,TextEncoder,Blob,DataView,ArrayBuffer,URLSearchParams,console,setTimeout:()=>0,clearTimeout(){},cancelAnimationFrame(){},requestAnimationFrame:()=>0,fetch:(...a)=>fetcher(...a)};
+ const c={document:{documentElement:{dataset:{}},querySelector:element,querySelectorAll:s=>s==='#vers button'?element('#vers').children:s==='input[name=fid]'?fid:s==='input[name=scene]'?scene:[],createElement:()=>new Element('new'),createTextNode:s=>s},window:{scrollTo(){}},Image:class{constructor(){images.push(this)}async decode(){}},URL:{createObjectURL:()=> 'blob:fixture-'+(++objectId),revokeObjectURL:u=>revoked.push(u)},CB_ASSETS:{photo:'fake-photo'},Uint32Array,TextEncoder,Blob,DataView,ArrayBuffer,URLSearchParams,console,setTimeout:()=>0,clearTimeout(){},cancelAnimationFrame(){},requestAnimationFrame:()=>0,fetch:(...a)=>fetcher(...a)};
  vm.createContext(c);
  // Keep actual drawStrip and updateResult/event binding. Skip Canvas rendering only.
  vm.runInContext(original.replace('  boot();','  render=()=>[]; window.review={S,generate,updateResult,drawStrip,pending:()=>pendingFile}; mountStudio();'),c);
@@ -46,13 +46,12 @@ for (const entry of ['again','go']) for(const imageFails of [false,true]) test(`
  if(imageFails){a.fetch(async(u,o)=>{assert.equal(o?.method,undefined);assert.equal(u,'/api/rendered-image?id=paid-first');return new Response('pixels');});await a.element('#errRetry').fire('click');assert.equal(a.S.phase,'result');}
  assert.equal(a.element('#'+entry).disabled,false);
 });
-test('old task finally cannot release newer generation controls',async()=>{
- const a=harness();let oldRelease,newRelease;let posts=0;
- a.fetch(async(u,o)=>o?.method==='POST'?new Promise(r=>{if(++posts===1)oldRelease=r;else newRelease=r;}):new Response('pixels'));
- const old=a.element('#again').fire('click');await a.element('#cancel').fire('click');
- const newer=a.element('#go').fire('click');oldRelease(ok());await old;
- assert.equal(a.element('#go').disabled,true);assert.equal(a.element('#again').disabled,true);
- newRelease(ok());await newer;assert.equal(a.element('#go').disabled,false);
+test('leaving wait keeps task locked until its own finally',async()=>{
+ const a=harness();let release,posts=0;
+ a.fetch(async(u,o)=>o?.method==='POST'?(posts++,new Promise(r=>release=r)):new Response('pixels'));
+ const first=a.element('#again').fire('click');await a.element('#cancel').fire('click');
+ await a.element('#go').fire('click');assert.equal(posts,1);assert.equal(a.element('#go').disabled,true);
+ release(ok());await first;assert.equal(a.element('#go').disabled,false);assert.equal(a.S.lateResults.length,1);
 });
 function choose(a,name,type='image/jpeg',size=10){a.element('#file').fire('change',{target:{files:[{name,type,size}]}});const im=a.images.at(-1);im.naturalWidth=im.naturalHeight=1000;return im;}
 for(const late of ['load','error']) test(`selection A→B, B loads first; late A ${late} cannot alter B`,async()=>{
@@ -86,4 +85,30 @@ for(const late of ['load','error']) test(`B failure remains current when A ${lat
  assert.equal(a.S.photo,original);assert.equal(a.pending(),null);assert.equal(a.S.phase,phase);
  assert.equal(a.element('#photoMsg').textContent,message);assert.equal(a.element('#photoMsg').dataset.kind,'err');
  assert.equal(a.revoked.filter(u=>u===old.src).length,1);assert.equal(a.revoked.filter(u=>u===newer.src).length,1);
+});
+
+test('changing scene during generation preserves paid task lock',async()=>{
+ const a=harness();let release,posts=0;
+ a.fetch(async(u,o)=>{if(o?.method==='POST'){posts++;return new Promise(r=>release=r);}return new Response('pixels');});
+ const first=a.element('#go').fire('click');await a.scene[0].fire('change');
+ await a.element('#go').fire('click');assert.equal(posts,1);
+ release(ok());await first;assert.equal(a.S.remaining,0);assert.equal(a.S.lateResults.length,1);
+});
+
+test('empty compare exports are guarded before accessing kit',async()=>{
+ const a=harness();a.S.kit={};a.S.photo=null;
+ await a.element('#exportAll').fire('click');
+ await a.element('#exportOne').fire('click');
+});
+test('again with no quota preserves existing reviewed result',async()=>{
+ const a=harness();a.S.remaining=0;a.S.cupOk=true;a.S.copyStale=false;
+ a.fetch(()=>{throw Error('must not POST')});
+ await a.element('#again').fire('click');
+ assert.equal(a.S.cupOk,true);assert.equal(a.S.copyStale,false);
+});
+test('edited copy invalidates both export confirmations immediately',async()=>{
+ const a=harness();a.S.cupOk=true;a.element('#compareConfirm').checked=true;
+ await a.element('#resCopy').fire('input',{target:{textContent:'新的文案'}});
+ assert.equal(a.element('#compareConfirm').checked,false);
+ assert.equal(a.element('#exportAll').attrs['aria-disabled'],'true');
 });

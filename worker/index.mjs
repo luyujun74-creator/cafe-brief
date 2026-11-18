@@ -46,6 +46,8 @@ function factsFrom(input) {
   const shop=optText(input.shop,fields.shop);
   if(shop===null) throw Error('INPUT_INVALID');
   result.shop=shop;
+  const offer=optText(input.offer,300); if(offer===null) throw Error('INPUT_INVALID');
+  result.offer=offer; result.currency='CNY';
   const price=String(input.price==null?'':input.price).trim();
   if(!/^(?:0|[1-9]\d{0,4})(?:\.\d{1,2})?$/.test(price) || Number(price)<=0) throw Error('INPUT_INVALID');
   result.price=Number(price).toFixed(2);
@@ -133,7 +135,7 @@ async function analyzeOnce(facts,env,fetchImpl,extra) {
   let raw;
   try { raw=await response.json(); } catch { throw Error('MODEL_FORMAT'); }
   const plan=parseAnalyze(raw,facts,points);
-  return {facts:facts,selling_points:plan.selling_points,title:plan.title,detail:plan.detail,visual_plan:plan.visual_plan,image_prompt:plan.image_prompt};
+  return {facts:facts,selling_points:plan.selling_points,title:[facts.shop,facts.product].filter(Boolean).join(' '),detail:[facts.shop,facts.product,'CNY ¥'+facts.price,facts.offer,facts.highlights].filter(Boolean).join(' · '),suggested_title:plan.title,suggested_detail:plan.detail,visual_plan:plan.visual_plan,image_prompt:plan.image_prompt};
 }
 
 async function analyze(facts,env,fetchImpl,extra) {
@@ -353,8 +355,8 @@ async function identity(request,env) {
   return hmac('visitor:'+ip,env.SESSION_SECRET);
 }
 function reserve(db,key) {
-  const until=Date.now()+240000+Math.floor(Math.random()*1000);
-  return db.prepare('INSERT INTO quota (visitor,uses,lease_until) VALUES (?,0,?) ON CONFLICT(visitor) DO UPDATE SET lease_until=excluded.lease_until WHERE uses<3 AND lease_until<? RETURNING uses,lease_until').bind(key,until,Date.now()).first();
+  const until=Date.now()+360000+Math.floor(Math.random()*1000);
+  return db.prepare('INSERT INTO quota (visitor,uses,lease_until) VALUES (?,0,?) ON CONFLICT(visitor) DO UPDATE SET lease_until=excluded.lease_until WHERE uses<3 AND lease_until<? AND NOT EXISTS (SELECT 1 FROM generation_requests WHERE id>=? AND id<? AND status=202) RETURNING uses,lease_until').bind(key,until,Date.now(),key+':',key+';').first();
 }
 function complete(db,key,until){return db.prepare('UPDATE quota SET uses=uses+1,lease_until=0 WHERE visitor=? AND lease_until=? RETURNING uses').bind(key,until).first();}
 function release(db,key,until){return db.prepare('UPDATE quota SET lease_until=0 WHERE visitor=? AND lease_until=?').bind(key,until).run();}
@@ -426,12 +428,25 @@ async function handleUnlock(request,env,data,visitor,url){
   return json({unlimited:true,remaining:null,token},200,{'set-cookie':`cafe_admin=${token}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`});
 }
 
+async function settleRecorded(db,key,visitor,journal) {
+  const {body,until}=journal;
+  try {
+    const results=await db.batch([
+      db.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=? AND EXISTS (SELECT 1 FROM quota WHERE visitor=? AND lease_until=?)').bind(body,200,key,visitor,until),
+      db.prepare('UPDATE quota SET uses=uses+1,lease_until=0 WHERE visitor=? AND lease_until=? AND EXISTS (SELECT 1 FROM generation_requests WHERE id=? AND status=200) RETURNING uses').bind(visitor,until,key)
+    ]);
+    if(!results[1].results?.length) return error('QUOTA_REPAIR_REQUIRED','结果结算待确认；请保留请求编号',503);
+    return new Response(body,{headers:{'content-type':'application/json','cache-control':'no-store'}});
+  } catch { return error('QUOTA_REPAIR_REQUIRED','结果尚未结算；请保留请求编号重试查询',503); }
+}
+
 const handlers = {
   async scheduled(event,env) {
     const minute=Math.floor(Date.now()/60000)-1440;
     const hour=Math.floor(Date.now()/3600000)-48;
     await env.DB.prepare('DELETE FROM generation_attempts WHERE minute<?').bind(minute).run();
     await env.DB.prepare('DELETE FROM unlock_attempts WHERE hour<?').bind(hour).run();
+    await env.DB.prepare('DELETE FROM generation_requests WHERE created_at<?').bind(Date.now()-7*86400000).run();
     await env.DB.prepare('DELETE FROM rendered_images WHERE expires_at<?').bind(Date.now()).run();
     await env.DB.prepare('DELETE FROM public_budget WHERE day<?').bind(Math.floor(Date.now()/86400000)-7).run();
   },
@@ -453,7 +468,7 @@ const handlers = {
       try{
         const admin=await isAdmin(request,env);
         const visitor=await identity(request,env);
-        return json({unlimited:admin,remaining:admin?null:Math.max(0,3-(await getUsesAsync(env.DB,visitor)))});
+        return json({configured:!!(env.ARK_API_KEY && env.ARK_MODEL && env.ARK_IMAGE_MODEL),unlimited:admin,remaining:admin?null:Math.max(0,3-(await getUsesAsync(env.DB,visitor)))});
       }catch{return error('SERVER_CONFIG','服务尚未配置',503);}
     }
     if(request.method!=='POST'||!MUTATING.includes(url.pathname))return error('NOT_FOUND','接口不存在',404);
@@ -471,21 +486,42 @@ const handlers = {
     let facts;
     try{facts=factsFrom(data);}catch{return error('INPUT_INVALID','请检查店名、商品、价格和已确认卖点',400);}
     if(isImageRequest){try{validateImage(data.image);}catch{return error('INPUT_INVALID','请上传有效且不超过 8MB 的商品图片',400);}}
-    try{if(!(await allowGeneration(env.DB,visitor)))return error('RATE_LIMIT','操作过于频繁，请稍后再试',429);}catch{return error('SERVER_UNAVAILABLE','频率记录暂时不可用',503);}
+    let requestKey = null, ownsRequest = false;
+    const rejectRequest = async response => {
+      if(ownsRequest) {try {await env.DB.prepare('DELETE FROM generation_requests WHERE id=?').bind(requestKey).run();} catch { /* Best effort: database may still be unavailable. */ }}
+      return response;
+    };
+    if(data.requestId != null) {
+      if(typeof data.requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,100}$/.test(data.requestId)) return error('INPUT_INVALID','请求编号无效',400);
+      requestKey = visitor + ':' + data.requestId;
+      const fingerprint = hex(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(url.pathname + JSON.stringify(data)))));
+      try {
+        const claimed = await env.DB.prepare('INSERT INTO generation_requests (id,fingerprint,created_at) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING RETURNING id').bind(requestKey,fingerprint,Date.now()).first();
+        if(!claimed) {
+          const prior = await env.DB.prepare('SELECT fingerprint,response,status FROM generation_requests WHERE id=?').bind(requestKey).first();
+          if(prior?.fingerprint !== fingerprint) return error('REQUEST_CONFLICT','请求编号已用于其他资料',409);
+          if(prior.status===202) return settleRecorded(env.DB,requestKey,visitor,JSON.parse(prior.response));
+          if(prior.response) return new Response(prior.response,{status:prior.status,headers:{'content-type':'application/json','cache-control':'no-store'}});
+          return error('GENERATION_BUSY','此请求正在处理；请保留请求编号，勿重复生成',409);
+        }
+        ownsRequest = true;
+      } catch { return error('SERVER_UNAVAILABLE','生成记录暂时不可用',503); }
+    }
+    try{if(!(await allowGeneration(env.DB,visitor)))return rejectRequest(error('RATE_LIMIT','操作过于频繁，请稍后再试',429));}catch{return rejectRequest(error('SERVER_UNAVAILABLE','频率记录暂时不可用',503));}
     const admin=await isAdmin(request,env);
     let reservation=null;
     if(!admin){
-      try{reservation=await reserve(env.DB,visitor);}catch{return error('SERVER_UNAVAILABLE','次数记录暂时不可用',503);}
-      if(!reservation){return (await getUsesAsync(env.DB,visitor))>=3?error('QUOTA_EXCEEDED','免费包装次数已用完',429):error('GENERATION_BUSY','上一份包装正在处理，请稍后再试',409);}
+      try{reservation=await reserve(env.DB,visitor);}catch{return rejectRequest(error('SERVER_UNAVAILABLE','次数记录暂时不可用',503));}
+      if(!reservation){return rejectRequest((await getUsesAsync(env.DB,visitor))>=3?error('QUOTA_EXCEEDED','免费包装次数已用完',429):error('GENERATION_BUSY','上一份包装正在处理，请稍后再试',409));}
       // Worst case per request: the text model may be retried once.
       const units=url.pathname==='/api/package'?3:url.pathname==='/api/generate-image'?1:2;
       const limit=Number(env.MAX_PUBLIC_DAILY_CALLS||200);
       try{
         if(!Number.isInteger(limit)||limit<1||limit>100000||!(await allowPublicAttempt(env.DB,limit,units))){
           await release(env.DB,visitor,reservation.lease_until);
-          return error('PUBLIC_BUDGET_EXCEEDED','今日公共额度已用完，请明天再试',429);
+          return rejectRequest(error('PUBLIC_BUDGET_EXCEEDED','今日公共额度已用完，请明天再试',429));
         }
-      }catch{try{await release(env.DB,visitor,reservation.lease_until);}catch{}return error('SERVER_UNAVAILABLE','公共额度记录暂时不可用',503);}
+      }catch{try{await release(env.DB,visitor,reservation.lease_until);}catch{}return rejectRequest(error('SERVER_UNAVAILABLE','公共额度记录暂时不可用',503));}
     }
     const run=(async()=>{
     try{
@@ -499,19 +535,37 @@ const handlers = {
         output=Object.assign({},analysis,{model_type:'text'});
       }
       if(reservation){
+        if(requestKey) {
+          const body=JSON.stringify(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:2-reservation.uses,unlimited:false}));
+          const journal={body,until:reservation.lease_until};
+          try {await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(JSON.stringify(journal),202,requestKey).run();}
+          catch {
+            try {await release(env.DB,visitor,reservation.lease_until);} catch {}
+            return rejectRequest(error('QUOTA_REPAIR_REQUIRED','结果记录待恢复，尚未扣次；请保留请求编号',503));
+          }
+          return settleRecorded(env.DB,requestKey,visitor,journal);
+        }
         const settled=await complete(env.DB,visitor,reservation.lease_until);
         if(!settled)return error('QUOTA_REPAIR_REQUIRED','生成记录暂时无法确认，请稍后再试',503);
-        return json(Object.assign({},output,{remaining:3-settled.uses,unlimited:false}));
+        return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:3-settled.uses,unlimited:false}));
       }
-      return json(Object.assign({},output,{remaining:null,unlimited:true}));
+      return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:null,unlimited:true}));
     }catch(e){
       console.error('generation_failed',e&&e.message);
-      if(reservation){try{await release(env.DB,visitor,reservation.lease_until);}catch{return error('QUOTA_REPAIR_REQUIRED','模型失败，处理锁暂时无法清除，约两分钟后可重试',503);}}
+      if(reservation){try{await release(env.DB,visitor,reservation.lease_until);}catch{return rejectRequest(error('QUOTA_REPAIR_REQUIRED','模型失败，处理锁暂时无法清除，约六分钟后可重试',503));}}
       if(e&&e.message==='SERVER_CONFIG')return error('SERVER_CONFIG','服务尚未配置',503);
       return error('MODEL_FAILED','模型生成失败，本次不计次数',502);
     }
     })();
-    return withHeartbeat(run,env,context);
+    const recorded = run.then(async response => {
+      if(requestKey && response.status >= 400 && response.status !== 503) return rejectRequest(response);
+      if(requestKey && !reservation) {
+        try { await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(await response.clone().text(),response.status,requestKey).run(); }
+        catch { return rejectRequest(error('QUOTA_REPAIR_REQUIRED','生成已处理，结果记录暂时无法确认；请勿重复提交',503)); }
+      }
+      return response;
+    });
+    return withHeartbeat(recorded,env,context);
   }
 };
 export default handlers;

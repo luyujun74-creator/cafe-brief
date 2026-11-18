@@ -7,19 +7,20 @@ const server=http.createServer((q,r)=>{const p=path.join(root,decodeURIComponent
 const JPEG=Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==','base64');
 (async()=>{
   await new Promise(r=>server.listen(0,r));const base=`http://127.0.0.1:${server.address().port}/`;
-  const browser=await chromium.launch({channel:'chrome',headless:true});
+  if(!process.env.CB_BROWSER_CDP) throw new Error('需要所选 Browser 的 CDP 地址（CB_BROWSER_CDP）；禁止此脚本另启浏览器。挂载 Browser 回归见 tests/browser-in-page.js');
+  const browser=await chromium.connectOverCDP(process.env.CB_BROWSER_CDP);
   const errors=[];
   const open=async(viewport,mock)=>{const ctx=await browser.newContext({viewport,hasTouch:viewport.width<500,acceptDownloads:true});const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));if(mock)await mock(page);await page.goto(base+'?nointro');await page.waitForFunction(()=>window.__cb);return page;};
-  const shot=async(p,n,full)=>{if(shots)await p.screenshot({path:path.join(shots,n+'.png'),fullPage:!!full});};
+  const shot=async(p,n,full)=>{if(shots){fs.mkdirSync(shots,{recursive:true});}if(shots)await p.screenshot({path:path.join(shots,n+'.png'),fullPage:!!full});};
   // 离线：无后端时明确标注示例
   let p=await open({width:1280,height:800});
-  assert.match(await p.textContent('#svcBanner'),/正在接入/);
+  assert.match(await p.textContent('#svcBanner'),/工作台已就绪|本地排版可用/);
   const html=await p.content();
   for(const dead of ['模板演示','免费公共模型','Pollinations','样稿','口令 demo'])assert.ok(!html.includes(dead),dead);
   assert.equal(await p.evaluate(()=>[...document.querySelectorAll('dialog')].filter(d=>getComputedStyle(d).display!=='none').length),0,'未打开的弹窗不可见');
   await shot(p,'home-desktop',true);
   await p.click('#trySample');await p.waitForSelector('#go');
-  assert.match(await p.textContent('#quotaChip'),/示例模式/);
+  assert.match(await p.textContent('#quotaChip'),/演示模式/);
   await p.click('#go');await p.waitForSelector('#paneResult:not([hidden])',{timeout:15000});
   await shot(p,'offline-result');
   assert.match(await p.textContent('#toast'),/未调用/);
@@ -48,7 +49,7 @@ const JPEG=Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQN
       if(u==='/api/package'||u==='/api/generate-image'){sent=r.request().postDataJSON();if(!unlocked&&left<=0)return j(429,{code:'QUOTA_EXCEEDED',error:'免费包装次数已用完'});if(!unlocked)left--;return j(200,{title:'真实标题',detail:'真实详情文案 冰奶油拿铁',selling_points:[],image_url:'/api/rendered-image?id=1',remaining:unlocked?null:left,unlimited:unlocked});}
       return j(404,{});});};
   p=await open({width:390,height:844},mock);
-  assert.match(await p.textContent('#svcBanner'),/已接通/);
+  assert.match(await p.textContent('#svcBanner'),/在线生成可用/);
   await p.goto(base+'?nointro#studio');await p.waitForFunction(()=>window.__cb);
   await p.setInputFiles('#file',{name:'c.jpg',mimeType:'image/jpeg',buffer:scene});
   await p.waitForFunction(()=>/已选用/.test(document.querySelector('#photoMsg').textContent));
@@ -56,7 +57,7 @@ const JPEG=Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQN
   await p.click('#go');await p.waitForSelector('#paneResult:not([hidden])',{timeout:15000});
   assert.match(sent.image,/^data:image\/jpeg;base64,/);assert.equal(sent.product,'冰奶油拿铁');
   assert.match(await p.textContent('#resCopy'),/真实标题/);
-  assert.match(await p.textContent('#quotaChip'),/还能免费包装 0 次/);
+  assert.match(await p.textContent('#quotaChip'),/免费包装剩余 0 次/);
   for(const id of ['main','poster']){await p.evaluate(i=>document.querySelector(`#strip button[data-id=${i}]`).click(),id);await shot(p,'live-'+id);}
   await p.check('#cupOk');
   const [d2]=await Promise.all([p.waitForEvent('download'),p.click('#exportOne')]);
@@ -70,5 +71,5 @@ const JPEG=Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQN
   await p.context().close();
   assert.deepEqual(errors,[],'页面无脚本错误');
   console.log('browser tests passed');
-  await browser.close();server.close();
+  server.close();
 })().catch(e=>{console.error(e);process.exit(1);});
