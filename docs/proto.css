@@ -311,6 +311,7 @@ button, input { font: inherit; color: inherit; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pane-head h2, .panel-card h2 { font-size: 15px; font-weight: 600; color: var(--text-1); }
 
+.photo-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
 .photo-msg {
   font-size: var(--fs-12); padding: 8px 10px; border-radius: var(--r-md);
   background: var(--bg-subtle); color: var(--text-2); border: 1px solid var(--border);

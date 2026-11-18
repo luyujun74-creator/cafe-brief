@@ -162,7 +162,9 @@
     updateServiceUi(S.live ? (!S.unlocked && S.remaining <= 0 ? 'locked' : 'online') : 'demo');
   }
   function saveLateResult(result, task) {
-    acceptQuota(result); S.lateResults.push({result, facts:task.facts, kind:task.kind, sheet:task.sheet, createdAt:Date.now()});
+    acceptQuota(result);
+    if (task.discardPhotoResult) return;
+    S.lateResults.push({result, facts:task.facts, kind:task.kind, sheet:task.sheet, createdAt:Date.now()});
     toast('上一稿已完成，可查看');
     const btn = $('#lateResult'); if(btn) btn.hidden = false;
   }
@@ -774,6 +776,9 @@
     syncScene();
     const studio = $('#studio');
     if (studio && studio.dataset) studio.dataset.phase = p;
+    const removePhotoBtn = $('#removePhoto'), pickPhotoBtn = $('#pickPhotoBtn');
+    if (removePhotoBtn) removePhotoBtn.hidden = !S.photo;
+    if (pickPhotoBtn) pickPhotoBtn.textContent = S.photo ? '更换照片' : '上传照片';
     const pb = $('#paneBrief'), pg = $('#paneGen'), pr = $('#paneResult'), pe = $('#paneError');
     if (pb) pb.hidden = !['empty', 'ready'].includes(p);
     if (pg) pg.hidden = p !== 'gen';
@@ -1068,8 +1073,42 @@
     };
     im.src = url;
   }
+  function removePhoto() {
+    if (!S.photo) return;
+    cancelPhotoSelection();
+    invalidateImageRequest();
+    if (generationTask) generationTask.discardPhotoResult = true;
+    photoRevision++;
+    pendingFile = null;
+    shrinkCache = null;
+    retryRequests.clear();
+    S.photo = null;
+    S.isSample = false;
+    S.kit = {};
+    S.lateResults = [];
+    S.aiTitle = '';
+    S.aiDetail = '';
+    S.aiPoints = [];
+    S.copyStale = false;
+    delete S.editedCopy;
+    delete S.copyUndo;
+    delete S.sampleUndo;
+    $('#sampleUndo').hidden = true;
+    $('#lateResult').hidden = true;
+    $('#file').value = '';
+    $('#briefErr').textContent = '';
+    const msg = $('#photoMsg');
+    msg.dataset.kind = '';
+    msg.textContent = '';
+    setFitMode('contain');
+    setPhase('empty');
+    $('#drop').focus();
+    toast('已移除照片，商品信息已保留');
+  }
   async function useSample(scene = S.scene) {
+    const revision = photoRevision;
     try { await ensureSampleAssets(); } catch { toast('示例读取失败，可重试或上传照片'); return; }
+    if (revision !== photoRevision) return;
     if(!S.isSample) S.sampleUndo={photo:S.photo,isSample:S.isSample,name:S.name,shop:S.shop,price:S.price,offer:S.offer,high:S.high,scene:S.scene,fitMode:S.fitMode,photoMsg:$('#photoMsg').innerHTML,photoKind:$('#photoMsg').dataset.kind};
     S.scene=scene;
     cancelPhotoSelection(); invalidateImageRequest(); photoRevision++;
@@ -1276,6 +1315,7 @@
 
     const drop = $('#drop');
     drop.addEventListener('click', () => $('#file').click());
+    $('#removePhoto')?.addEventListener('click', removePhoto);
     if ($('#pickPhotoBtn')) $('#pickPhotoBtn').addEventListener('click', () => $('#file').click());
     if ($('#dropSampleBtn')) $('#dropSampleBtn').addEventListener('click', () => useSample());
     if ($('#trySample')) $('#trySample').addEventListener('click', () => { switchView('studio'); useSample(); });
