@@ -292,6 +292,7 @@ async function generateScene(facts,image,env,fetchImpl,visitor,analysis,options)
   parts.push('构图要求：采用中景，完整呈现整个商品与原图中属于商品组合的配件，顶部和底部保留清楚的背景余量。保留原有杯口、杯底和杯碟轮廓，避免近景特写。仅在原图已有时保留吸管、奶泡或配件。');
   if(points.length)parts.push('商家确认的优先卖点：'+points.join('、')+'。');
   if(style)parts.push('整体视觉风格倾向：'+style+'。仍须严格保持商品本身不变，仅调整背景、光线、色调与氛围。');
+  if (style === '纯色影棚') parts.push('使用同色哑光台面与墙面自然过渡的无缝背景，保留真实接触阴影。完整替换原片背景，去掉白色矩形底板、白卡、硬边色块和任何画中画边框，保留参考图中确实属于商品的杯碟及配件。');
   parts.push('再次强调：画面中不得出现任何文字、数字、价格、logo、标签或促销元素。');
   const prompt=parts.join(' ');
   let response;
@@ -408,6 +409,34 @@ const withHeartbeat=async(run,env,context)=>{
   });
   return new Response(body,{status:200,encodeBody:'manual',headers:{'content-type':'application/json; charset=utf-8','content-encoding':'identity','cache-control':'no-store, no-transform','x-content-type-options':'nosniff','x-streamed':'heartbeat'}});
 };
+// Opt-in progress keeps the legacy JSON response and idempotent result journal intact.
+function withGenerationProgress(execute, env, context) {
+  let heartbeat, closed = false;
+  const body = new ReadableStream({
+    start(controller) {
+      const send = event => {
+        if (!closed) controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+      };
+      heartbeat = setInterval(() => send({ heartbeat:true }), Number(env.HEARTBEAT_MS) || 8000);
+      const finish = result => {
+        clearInterval(heartbeat);
+        if (closed) return;
+        send({ result });
+        controller.close();
+        closed = true;
+      };
+      const delivery = execute(stage => send({ stage }))
+        .then(response => response.json())
+        .then(finish, () => finish({ code:'QUOTA_REPAIR_REQUIRED', error:'生成记录暂时无法确认，可重试同一请求' }));
+      context.waitUntil?.(delivery);
+    },
+    cancel() { closed = true; clearInterval(heartbeat); },
+  });
+  return new Response(body, { status:200, encodeBody:'manual', headers:{
+    'content-type':'application/x-ndjson; charset=utf-8', 'content-encoding':'identity', 'cache-control':'no-store, no-transform',
+    'x-content-type-options':'nosniff',
+  } });
+}
 const withCors=(response,origin)=>{
   if(!origin)return response;
   const out=new Response(response.body,response);
@@ -524,49 +553,60 @@ const handlers = {
         }
       }catch{try{await release(env.DB,visitor,reservation.lease_until);}catch{}return rejectRequest(error('SERVER_UNAVAILABLE','公共额度记录暂时不可用',503));}
     }
-    const run=(async()=>{
-    try{
-      let output;
-      const extra={image_description:data.image_description,style:data.style};
-      const analysis=url.pathname==='/api/generate-image'?{}:await analyze(facts,env,fetchImpl,extra);
-      if(isImageRequest){
-        const scene=await generateScene(facts,data.image,env,fetchImpl,visitor,analysis,{style:data.style});
-        output=Object.assign({},analysis,scene,{image_url:scene.scene_url,image_type:'seedream_reference_scene','model_type':'text_and_image'});
-      }else{
-        output=Object.assign({},analysis,{model_type:'text'});
-      }
-      if(reservation){
-        if(requestKey) {
-          const body=JSON.stringify(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:2-reservation.uses,unlimited:false}));
-          const journal={body,until:reservation.lease_until};
-          try {await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(JSON.stringify(journal),202,requestKey).run();}
-          catch {
-            try {await release(env.DB,visitor,reservation.lease_until);} catch {}
-            return rejectRequest(error('QUOTA_REPAIR_REQUIRED','结果记录待恢复，尚未扣次；请保留请求编号',503));
+    const execute = reportStage => {
+      const run=(async()=>{
+        try{
+          let output;
+          const copyStart = Date.now();
+          if (url.pathname === '/api/package') reportStage('copy');
+          const extra={image_description:data.image_description,style:data.style};
+          const analysis=url.pathname==='/api/generate-image'?{}:await analyze(facts,env,fetchImpl,extra);
+          if(isImageRequest){
+            const sceneStart = Date.now();
+            reportStage('scene');
+            const scene=await generateScene(facts,data.image,env,fetchImpl,visitor,analysis,{style:data.style});
+            output=Object.assign({},analysis,scene,{image_url:scene.scene_url,image_type:'seedream_reference_scene','model_type':'text_and_image',
+              timings_ms:{copy:sceneStart - copyStart, scene:Date.now() - sceneStart}});
+            reportStage('settling');
+          }else{
+            output=Object.assign({},analysis,{model_type:'text'});
           }
-          return settleRecorded(env.DB,requestKey,visitor,journal);
+          if(reservation){
+            if(requestKey) {
+              const body=JSON.stringify(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:2-reservation.uses,unlimited:false}));
+              const journal={body,until:reservation.lease_until};
+              try {await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(JSON.stringify(journal),202,requestKey).run();}
+              catch {
+                try {await release(env.DB,visitor,reservation.lease_until);} catch {}
+                return rejectRequest(error('QUOTA_REPAIR_REQUIRED','结果记录待恢复，尚未扣次；请保留请求编号',503));
+              }
+              return settleRecorded(env.DB,requestKey,visitor,journal);
+            }
+            const settled=await complete(env.DB,visitor,reservation.lease_until);
+            if(!settled)return error('QUOTA_REPAIR_REQUIRED','生成记录暂时无法确认，请稍后再试',503);
+            return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:3-settled.uses,unlimited:false}));
+          }
+          return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:null,unlimited:true}));
+        }catch(e){
+          console.error('generation_failed',e&&e.message);
+          if(reservation){try{await release(env.DB,visitor,reservation.lease_until);}catch{return rejectRequest(error('QUOTA_REPAIR_REQUIRED','模型失败，处理锁暂时无法清除，约六分钟后可重试',503));}}
+          if(e&&e.message==='SERVER_CONFIG')return error('SERVER_CONFIG','服务尚未配置',503);
+          return error('MODEL_FAILED','模型生成失败，本次不计次数',502);
         }
-        const settled=await complete(env.DB,visitor,reservation.lease_until);
-        if(!settled)return error('QUOTA_REPAIR_REQUIRED','生成记录暂时无法确认，请稍后再试',503);
-        return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:3-settled.uses,unlimited:false}));
-      }
-      return json(Object.assign({},output,{offer:facts.offer,currency:facts.currency,remaining:null,unlimited:true}));
-    }catch(e){
-      console.error('generation_failed',e&&e.message);
-      if(reservation){try{await release(env.DB,visitor,reservation.lease_until);}catch{return rejectRequest(error('QUOTA_REPAIR_REQUIRED','模型失败，处理锁暂时无法清除，约六分钟后可重试',503));}}
-      if(e&&e.message==='SERVER_CONFIG')return error('SERVER_CONFIG','服务尚未配置',503);
-      return error('MODEL_FAILED','模型生成失败，本次不计次数',502);
+      })();
+      return run.then(async response => {
+        if(requestKey && response.status >= 400 && response.status !== 503) return rejectRequest(response);
+        if(requestKey && !reservation) {
+          try { await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(await response.clone().text(),response.status,requestKey).run(); }
+          catch { return rejectRequest(error('QUOTA_REPAIR_REQUIRED','生成已处理，结果记录暂时无法确认；请勿重复提交',503)); }
+        }
+        return response;
+      });
+    };
+    if (url.pathname === '/api/package' && url.searchParams.get('progress') === '1') {
+      return withGenerationProgress(execute,env,context);
     }
-    })();
-    const recorded = run.then(async response => {
-      if(requestKey && response.status >= 400 && response.status !== 503) return rejectRequest(response);
-      if(requestKey && !reservation) {
-        try { await env.DB.prepare('UPDATE generation_requests SET response=?,status=? WHERE id=?').bind(await response.clone().text(),response.status,requestKey).run(); }
-        catch { return rejectRequest(error('QUOTA_REPAIR_REQUIRED','生成已处理，结果记录暂时无法确认；请勿重复提交',503)); }
-      }
-      return response;
-    });
-    return withHeartbeat(recorded,env,context);
+    return withHeartbeat(execute(() => {}),env,context);
   }
 };
 export default handlers;

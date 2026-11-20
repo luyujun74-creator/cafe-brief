@@ -20,11 +20,11 @@
 | `worker/schema.sql` | D1 表结构 |
 | `tests/` | 后台单元测试和真实浏览器回归测试 |
 
-`apiBase` 为空时，页面只运行离线示例，并明确标注未调用模型。
+`apiBase` 为空时，前端尝试同源 API。GitHub Pages 本身没有 API，无法接通时进入本地演示。
 
 ## 次数限制
 
-每个网络（按 IP）可免费包装 3 次；一次完整包装用 1 次，“再来一版”也用 1 次。超过后输入解锁密码可不限次数。密码只在服务端以哈希保存和校验。
+每个网络（按 IP）可免费包装 3 次；一次完整包装用 1 次，“再来一版”也用 1 次。用完后可向项目维护者申请解锁密码。密码只在服务端以哈希保存和校验。
 
 ## 部署后台
 
@@ -41,9 +41,19 @@ npx wrangler deploy
 
 然后把 Worker 地址写入 `docs/config.js`。所有密钥只放在 Worker 的 secrets 里，不要提交到仓库。
 
+## 本地预览
+
+```bash
+CB_PREVIEW_PORT=8775 node tests/local-server.cjs
+```
+
+打开 http://127.0.0.1:8775/。预览使用同源离线配置。载入示例后可测试编辑、核对、切页和下载，不调用在线模型。
+
+在线生成依次运行豆包文案与 Seedream 场景生成，因为后者使用前者的视觉方案。新版回传真实处理阶段，并在响应的 `timings_ms` 记录文案与场景处理时间。成品随后由浏览器单独下载。对比生成速度时，应同时记录这两段与取图耗时。
+
 ## 测试
 
 ```bash
-node --test tests/worker.test.mjs
-NODE_PATH=<含 playwright-core 的 node_modules> node tests/browser.test.cjs [截图目录]
+node --test tests/*.test.mjs
+NODE_PATH=<含 playwright-core 的 node_modules> CB_BROWSER_CDP=<所选浏览器的 CDP 地址> node tests/browser.test.cjs [截图目录]
 ```

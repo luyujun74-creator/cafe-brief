@@ -45,7 +45,7 @@
   };
   const SCENE_URLS = Object.fromEntries(['seam','wood','stone','window'].map(id => [id, 'assets/scene-' + id + '.webp']));
   const img = { cut: new Image(), photo: new Image(), scenes: {} };
-  let assetsReady = false;
+  let assetsReady = false, priceTouched = false;
   let probePromise = null, probeSeq = 0, quotaRevision = 0, samplePromise = null, photoRevision = 0, shrinkCache = null;
   const STATUS_KEY = 'cb_status_v2';
 
@@ -57,7 +57,29 @@
   const TOKEN_KEY = 'cb_unlock';
   const authHeaders = () => { try { const t = localStorage.getItem(TOKEN_KEY); return t ? { authorization: 'Bearer ' + t } : {}; } catch { return {}; } };
   const retryRequests = new Map();
-  async function apiPost(path, body) {
+  async function readGenerationStream(response, reportStage) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '', result;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        pending += decoder.decode(value, { stream: !done });
+        const lines = pending.split('\n');
+        pending = lines.pop();
+        for (const line of lines) {
+          if (!line) continue;
+          const event = JSON.parse(line);
+          if (event.stage) reportStage(event.stage);
+          if (event.result) result = event.result;
+        }
+        if (done) break;
+      }
+    } finally { reader.releaseLock(); }
+    if (!result) throw new Error('Incomplete generation response');
+    return result;
+  }
+  async function apiPost(path, body, reportStage) {
     const signature = body.requestId ? JSON.stringify({...body,requestId:null}) : null;
     const previous = retryRequests.get(path);
     if(signature && previous?.signature === signature) body = previous.body;
@@ -65,8 +87,10 @@
     const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), 270000) : 0;
     try {
-      const response = await fetch(apiUrl(path), { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), credentials: API_BASE ? 'omit' : 'same-origin', signal: ctrl?.signal });
-      const payload = await response.json();
+      const response = await fetch(apiUrl(path + (reportStage ? '?progress=1' : '')), { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), credentials: API_BASE ? 'omit' : 'same-origin', signal: ctrl?.signal });
+      const payload = reportStage && response.body && response.headers.get('content-type')?.includes('application/x-ndjson')
+        ? await readGenerationStream(response, reportStage)
+        : await response.json();
       if (!response.ok || payload?.code) { if (!['GENERATION_BUSY','QUOTA_REPAIR_REQUIRED'].includes(payload?.code)) retryRequests.delete(path); const e = new Error(payload?.error || '请求失败'); e.code = payload?.code || ('HTTP_' + response.status); throw e; }
       retryRequests.delete(path); return payload;
     } catch(e) { if(e.code) throw e; const err = new Error('连接中断，任务可能仍在处理，请勿重复提交'); err.code = 'NETWORK'; throw err; }
@@ -152,7 +176,27 @@
   function invalidateImageRequest() {
     cancelImageFlow();
     S.draftRevision++;
-    if (S.aiDetail || S.editedCopy != null) S.copyStale = true;
+  }
+  function invalidateCopy() {
+    if (S.aiTitle || S.aiDetail) S.copyStale = true;
+    if (S.editedCopy != null) S.editedCopyStale = true;
+    if (S.copyUndo != null) S.copyUndoStale = true;
+    S.claims = { c1: false, c2: false };
+  }
+  function updateFact(key, value) {
+    if (key === 'price') priceTouched = true;
+    if (S[key] === value) { updateGo(); return; }
+    const changed = S[key].trim() !== value.trim();
+    S[key] = value;
+    if (changed) {
+      invalidateImageRequest();
+      invalidateCopy();
+    }
+    syncAllInputs();
+    $('#briefErr').textContent = '';
+    updateGo();
+    updateExportUi();
+    redrawAll();
   }
   function acceptQuota(result) {
     quotaRevision++;
@@ -171,13 +215,15 @@
   async function recoverImage(job) {
     if (job !== imageRecovery || job.run !== S.run || job.loading) return;
     job.loading = true;
+    if (job.kind === 'package') setGenerationStage('download');
     $('#errRetry').setAttribute('aria-busy', 'true');
     try {
       const sceneImg = await loadScene(job.result.image_url);
       if (job !== imageRecovery || job.run !== S.run) return;
       if (job.kind === 'package') {
         S.aiTitle = job.result.title || ''; S.aiDetail = job.result.detail || '';
-        if (Array.isArray(job.result.selling_points)) S.aiPoints = job.result.selling_points;
+        S.aiPoints = Array.isArray(job.result.selling_points) ? job.result.selling_points : [];
+        S.copyStale = false;
         SHEETS.forEach(sd => {
           const k = S.kit[sd.id]; k.status = 'done'; k.mode = 'scene'; k.sceneImg = sceneImg;
           addVersion(k);
@@ -192,7 +238,6 @@
       if(generationTask?.startedAt) $('#genTimer').textContent='已完成 · '+Math.round((Date.now()-generationTask.startedAt)/1000)+' 秒';
       imageRecovery = null;
       $('#errRetry span').textContent = '重新包装';
-      S.copyStale=false;
       setPhase('result'); updateResult(); toast('图片已加载，本次生成已计入次数');
     } catch {
       if (job !== imageRecovery || job.run !== S.run) return;
@@ -330,16 +375,42 @@
 
   const DISPLAY_FONT = '"PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif';
   function fitFont(ctx, text, maxW, start, min, weight = '700') {
-    let s = start;
-    do { ctx.font = `${weight} ${s}px ${DISPLAY_FONT}`; if (ctx.measureText(text).width <= maxW) return { size: s, ok: true }; s -= 2; } while (s >= min);
-    return { size: min, ok: false };
+    for (let size = start; ; size = Math.max(min, size - 2)) {
+      ctx.font = `${weight} ${size}px ${DISPLAY_FONT}`;
+      if (ctx.measureText(text).width <= maxW) return { size, ok: true };
+      if (size <= min) return { size: min, ok: false };
+    }
   }
-  function breakName(n) {
-    if (n.length <= 3) return [n];
-    const a = Math.ceil(n.length / 2);
-    return [n.slice(0, a), n.slice(a)];
+  function drawTitle(ctx, text, { x, y, width, size, min, maxLines, height, spread = false }) {
+    const fit = fitFont(ctx, text, width, size, min);
+    if (fit.ok && !spread) {
+      ctx.font = `700 ${fit.size}px ${DISPLAY_FONT}`;
+      ctx.fillText(text, x, y, width);
+      return;
+    }
+    const characters = Array.from(text);
+    let lines;
+    for (let font = size; font >= min; font = Math.max(min, font - 2)) {
+      ctx.font = `700 ${font}px ${DISPLAY_FONT}`;
+      lines = [''];
+      for (const character of characters) {
+        const last = lines.length - 1;
+        const candidate = lines[last] + character;
+        if (lines[last] && ctx.measureText(candidate).width > width) lines.push(character);
+        else lines[last] = candidate;
+      }
+      if ((lines.length <= maxLines && font * (1 + (lines.length - 1) * 1.12) <= height) || font === min) {
+        // Even unusually wide glyphs stay inside the text box.
+        if (lines.length > maxLines) lines.splice(maxLines - 1, Infinity, lines.slice(maxLines - 1).join(''));
+        lines.forEach((line, i) => ctx.fillText(line, x, y - (lines.length - 1 - i) * font * 1.12, width));
+        return;
+      }
+    }
   }
 
+  function fitOffer(ctx, text, maxWidth, start, min) {
+    return fitFont(ctx, text, maxWidth, Math.round(start), Math.round(min), '500');
+  }
   function textLayer(ctx, w, h, sp, f, t, layout, photographic = false, splitBanner = false) {
     const issues = [];
     if (photographic) {
@@ -353,27 +424,24 @@
     const name = f.name || '商品名', price = f.price ? `¥${f.price}` : '';
     if (sp.id === 'poster') {
       const m = w * .07;
-      if (f.shop) { ctx.font = `600 ${Math.round(w * .034)}px ${DISPLAY_FONT}`; ctx.fillText(f.shop, m, m + w * .02); }
+      if (f.shop) {
+        ctx.font = `600 ${Math.round(w * .034)}px ${DISPLAY_FONT}`;
+        ctx.fillText(f.shop, m, m + w * .02, w * .86);
+      }
       if (layout === 'behind') {
-        const lines = breakName(name);
-        const r = lines.map(l => fitFont(ctx, l, w * .86, Math.round(w * .24), Math.round(w * .085)));
-        if (r.some(x => !x.ok)) issues.push('商品名太长，海报放不下');
-        const fs = Math.min(...r.map(x => x.size));
-        ctx.font = `700 ${fs}px ${DISPLAY_FONT}`;
-        lines.forEach((l, i) => ctx.fillText(l, m - fs * .02, h * .1 + fs * .92 + i * fs * 1.04));
+        drawTitle(ctx, name, { x: m, y: h * .36, width: w * .86, size: Math.max(1, Math.round(w * .22)),
+          min: Math.max(1, Math.round(w * .048)), maxLines: 3, height: h * .26, spread: true });
       }
     }
     if (sp.id === 'banner') {
       const m = h * .13;
-      const r = fitFont(ctx, name, w * .52, Math.round(h * .27), Math.round(h * .1));
-      if (!r.ok) issues.push('商品名太长，Banner 放不下');
-      ctx.font = `700 ${r.size}px ${DISPLAY_FONT}`;
-      ctx.fillText(name, m, h * .46);
-      if (price) { ctx.font = `700 ${Math.round(h * .17)}px ${DISPLAY_FONT}`; ctx.fillText(price, m, h * .72); }
+      drawTitle(ctx, name, { x: m, y: h * .46, width: w * (splitBanner ? .48 : .52),
+        size: Math.max(1, Math.round(h * .27)), min: Math.max(1, Math.round(h * .048)), maxLines: 2, height: h * .4 });
+      if (price) { ctx.font = `700 ${Math.round(h * .17)}px ${DISPLAY_FONT}`; ctx.fillText(price, m, h * .72, w * .48); }
       const sub = [f.shop, f.offer].filter(Boolean).join(' · ');
       if (sub) {
         const maxWidth = w * (splitBanner ? .48 : .55);
-        const fit = fitFont(ctx, sub, maxWidth, Math.round(h * .085), Math.round(h * .05), '500');
+        const fit = fitOffer(ctx, sub, maxWidth, h * .085, h * .05);
         if (!fit.ok) issues.push('活动文字太长，Banner 放不下');
         ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; if (splitBanner) ctx.fillText(sub, m, h * .88, maxWidth);
         else ctx.fillText(sub, m, h * .88);
@@ -391,7 +459,7 @@
     ctx.fillStyle = t.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     if (f.price) { ctx.font = `700 ${Math.round(w * .14)}px ${DISPLAY_FONT}`; ctx.fillText(`¥${f.price}`, m, h * .93 - (f.offer ? h * .05 : 0)); }
     if (f.offer) {
-      const fit = fitFont(ctx, f.offer, w * .56, Math.round(w * .044), Math.round(w * .028), '500');
+      const fit = fitOffer(ctx, f.offer, w * .56, w * .044, w * .028);
       if (!fit.ok) issues.push('活动文字太长，海报放不下');
       ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; ctx.fillText(f.offer, m, h * .935);
     }
@@ -407,15 +475,13 @@
     const issues = [];
     if (f.shop) {
       ctx.font = `600 ${Math.round(w * .034)}px ${DISPLAY_FONT}`;
-      ctx.fillText(f.shop, m, compact ? h * .055 : (m + w * .02));
+      ctx.fillText(f.shop, m, compact ? h * .043 : (m + w * .02), w * .86);
     }
-    const startFs = compact ? Math.round(w * .115) : Math.round(w * .12);
-    const fit = fitFont(ctx, name, w * .86, startFs, Math.round(w * .058));
-    if (!fit.ok) issues.push('商品名太长，海报放不下');
-    ctx.font = `700 ${fit.size}px ${DISPLAY_FONT}`;
-    ctx.fillText(name, m, compact ? (f.shop ? h * .148 : h * .128) : h * .25);
+    drawTitle(ctx, name, { x: m, y: compact ? h * .167 : h * .25, width: w * .86,
+      size: Math.max(1, Math.round(w * .11)), min: Math.max(1, Math.round(w * .038)), maxLines: 2, height: h * (compact ? .118 : .17) });
     return issues;
   }
+
   function render(canvas, spId, opt = {}) {
     if (!canvas) return [];
     const sp = SHEETS.find(s => s.id === spId);
@@ -576,7 +642,7 @@
   /* ---------- 多页面预览渲染（按当前可见页面懒渲染） ---------- */
   function renderPhoneView() {
     if(!S.photo) return;
-    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
+    const pf = S.photo ? currentFacts() : previewFacts();
     const checked = $('input[name=ph]:checked');
     const pk = checked ? checked.value === 'pack' : true;
     const kM = S.kit.main, kB = S.kit.banner;
@@ -604,10 +670,14 @@
   }
 
   function renderCompareView() {
+    syncAllInputs();
+    updateGo();
+    updateExportUi();
     if(!S.photo) return;
     const after = $('#baAfter'), before = $('#baBefore');
-    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
+    const pf = S.photo ? currentFacts() : previewFacts();
     const kM = S.kit[S.sheet] || S.kit.main;
+    $('#compareSelected').textContent = SHEETS.find(s => s.id === S.sheet).name;
     const useUserPhoto = !!S.photo && !S.isSample;
     const src = useUserPhoto ? S.photo : null;
     if (after && before) {
@@ -635,8 +705,7 @@
   function renderFacts() {
     const fp = $('#factsPoster');
     if (!fp) return;
-    const fPrice = $('#fPrice'), fOffer = $('#fOffer');
-    const pf = S.phase === 'result' ? currentFacts() : previewFacts();
+    const pf = S.photo ? currentFacts() : previewFacts();
     const f = {
       name: pf.name,
       price: pf.price,
@@ -672,29 +741,18 @@
     const ba = $('#ba'), r = $('.ba-range');
     if (ba && r) r.addEventListener('input', () => ba.style.setProperty('--pos', r.value + '%'));
     $$('input[name=ph]').forEach(i => i.addEventListener('change', renderPhoneView));
-    for(const [id,key,studio] of [['#fPrice','price','#iPrice'],['#fOffer','offer','#iOffer']]) $(id)?.addEventListener('input', e => {invalidateImageRequest();S[key]=e.target.value;$(studio).value=e.target.value;syncAllInputs();renderAllCopy();if(S.phase==='result') updateResult();redrawAll();});
-    renderCopy($('#factsCopy'), currentFacts());
-
-    // 手机预览页面输入框双向同步到工作台
-    const bindPhoneSync = (phId, studioId, key) => {
-      const el = $(phId);
-      if (!el) return;
-      el.addEventListener('input', e => {
-        invalidateImageRequest(); S[key] = e.target.value;
-        const st = $(studioId);
-        if (st && st.value !== e.target.value) st.value = e.target.value;
-        if (S.aiDetail || S.editedCopy != null) S.copyStale = true;
-        updateGo();
-        renderPhoneView();
-      });
-    };
-    bindPhoneSync('#phInputName', '#iName', 'name');
-    bindPhoneSync('#phInputPrice', '#iPrice', 'price');
-    bindPhoneSync('#phInputShop', '#iShop', 'shop');
-    bindPhoneSync('#phInputOffer', '#iOffer', 'offer');
+    for (const [id, key] of [['#fPrice', 'price'], ['#fOffer', 'offer'], ['#phInputName', 'name'],
+      ['#phInputPrice', 'price'], ['#phInputShop', 'shop'], ['#phInputOffer', 'offer']]) {
+      $(id)?.addEventListener('input', e => updateFact(key, e.target.value));
+    }
+    renderAllCopy();
 
     if ($('#phoneToStudio')) $('#phoneToStudio').addEventListener('click', () => switchView('studio'));
     if ($('#compareToStudio')) $('#compareToStudio').addEventListener('click', () => switchView('studio'));
+    $('#aboutLink')?.addEventListener('click', () => {
+      switchView('guide');
+      $('#aboutProject')?.scrollIntoView?.({ block: 'start' });
+    });
     if ($('#guideUnlockBtn')) $('#guideUnlockBtn').addEventListener('click', openUnlock);
     if ($('#guideRetryBtn')) $('#guideRetryBtn').addEventListener('click', () => retryProbe(true));
   }
@@ -702,9 +760,15 @@
   /* ---------- 文案：事实 / AI 描述 ---------- */
   function renderCopy(el, f) {
     if (!el) return;
-    if(el.id==='factsCopy' && (S.aiDetail || S.editedCopy != null)){el.textContent=exportCopy(f);return;}
+    if (el.id === 'factsCopy') { el.textContent = f.name ? exportCopy(f).trimEnd() : ''; return; }
+    if (el.id === 'resCopy') {
+      if (document.activeElement !== el) {
+        const aiCopy = !S.copyStale && [S.aiTitle, S.aiDetail].filter(Boolean).join('\n');
+        el.textContent = S.editedCopy ?? (aiCopy || exportCopy(f).trimEnd());
+      }
+      return;
+    }
     const shop = (f.shop || '').trim();
-    if(el.id === 'resCopy') {if(document.activeElement !== el) el.textContent = S.editedCopy ?? (S.copyStale ? '结果基于上次信息，请复核文案' : [S.aiTitle,S.aiDetail].filter(Boolean).join('\n') || exportCopy(f).trimEnd());return;}
     el.innerHTML = '';
     AI_COPY.forEach(p => {
       if (p.opt && !shop) return;
@@ -713,7 +777,7 @@
         b.type = 'button'; b.className = 'claim' + (S.claims[p.claim] ? ' kept' : '');
         b.textContent = p.t; b.setAttribute('aria-pressed', S.claims[p.claim]);
         b.setAttribute('aria-label', `${p.t}，AI 补充的描述，${S.claims[p.claim] ? '已保留，点击取消' : '点击保留'}`);
-        b.addEventListener('click', () => { S.claims[p.claim] = !S.claims[p.claim]; renderAllCopy(); });
+        b.addEventListener('click', () => { S.claims[p.claim] = !S.claims[p.claim]; S.cupOk = false; updateExportUi(); });
         el.append(b);
       } else {
         const t = p.t.replace('{name}', f.name || '商品名').replace('{shop}', shop).replace('{shopTail}', shop ? '现做。' : '');
@@ -722,8 +786,8 @@
     });
   }
   function exportCopy(f) {
-    if(S.editedCopy != null && !S.copyStale) return [`商品名：${f.name}`,`店名：${f.shop}`,`售价：CNY ¥${f.price}`,f.offer?`活动：${f.offer}`:'',`商家确认文案：${S.editedCopy}`].filter(Boolean).join('\n')+'\n';
-    if (S.copyStale) {
+    if(S.editedCopy != null && !S.editedCopyStale) return [`商品名：${f.name}`,`店名：${f.shop}`,`售价：CNY ¥${f.price}`,f.offer?`活动：${f.offer}`:'',`商家确认文案：${S.editedCopy}`].filter(Boolean).join('\n')+'\n';
+    if (S.copyStale || (S.editedCopy != null && S.editedCopyStale)) {
       const out = [`商品名称：${f.name}`, `店名：${f.shop}`, `售价：CNY ¥${f.price}`];
       if (f.offer) out.push(`活动：${f.offer}`);
       return out.join('\n') + '\n';
@@ -741,16 +805,25 @@
     return lines.join('\n') + '\n';
   }
   function renderAllCopy() {
+    const stale = S.editedCopy != null ? S.editedCopyStale : S.copyStale;
     const factsCopyNote = $('#factsCopyNote');
-    if (factsCopyNote) factsCopyNote.textContent = (S.aiDetail || S.editedCopy != null) ? '此处同步展示当前导出文案；如需编辑请回工作台「上架文案」区。' : '点击蓝色标签可切换“保留 / 不保留”，仅保留项会进入导出文案。';
+    if (factsCopyNote) factsCopyNote.textContent = stale
+      ? '商品信息已变更，旧文案已过期。当前导出仅含填写的事实。'
+      : '这里显示压缩包里实际包含的文案，可回工作台编辑。';
+    const claims = $('#copyClaims');
+    if (claims) {
+      claims.hidden = !S.isSample || S.live || !!S.aiDetail || S.editedCopy != null;
+      if (!claims.hidden) renderCopy(claims, currentFacts());
+    }
     renderCopy($('#factsCopy'), currentFacts());
     renderCopy($('#resCopy'), currentFacts());
     const note = $('#copyNote');
     if (!note) return;
-    if(S.editedCopy != null) {note.textContent='商家编辑文案，修改后请重新核对。';return;}
-    if (S.aiDetail) { note.textContent = S.copyStale ? '你修改了商品信息，这段文案已过期：复制和下载时会自动剔除，重新包装后更新。' : '文案由 AI 按填写事实生成，导出前可核对确认。'; return; }
-    const n = Object.values(S.claims).filter(v => !v).length;
-    note.textContent = n ? `${n} 处蓝色补充词未确认，导出时将自动省略；点击蓝色词可切换保留。` : '所选补充词已确认，将随商品信息一起导出。';
+    note.textContent = stale
+      ? (S.editedCopy != null ? '手改文案已过期且仍保留。请按当前事实更新文字，或核对后重新采用。' : 'AI 文案已过期。重新包装可更新文案，当前只导出已填写的事实。')
+      : (S.editedCopy != null ? '手改文案已纳入导出，请核对商品事实。' : '导出前核对商品信息。');
+    const reapply = $('#copyReapply');
+    if (reapply) reapply.hidden = !(S.editedCopy != null && S.editedCopyStale);
   }
 
   /* ---------- 工作台 ---------- */
@@ -781,6 +854,8 @@
     if (pickPhotoBtn) pickPhotoBtn.textContent = S.photo ? '更换照片' : '上传照片';
     const pb = $('#paneBrief'), pg = $('#paneGen'), pr = $('#paneResult'), pe = $('#paneError');
     if (pb) pb.hidden = !['empty', 'ready'].includes(p);
+    const backToResult = $('#returnResult');
+    if (backToResult) backToResult.hidden = p !== 'ready' || !Object.values(S.kit).some(k => k.status === 'done');
     if (pg) pg.hidden = p !== 'gen';
     if (pr) pr.hidden = p !== 'result';
     if (pe) pe.hidden = p !== 'error';
@@ -789,14 +864,15 @@
     if (zoomBtn) zoomBtn.hidden = !['ready', 'result'].includes(p);
     syncImageActions();
     if (liveBadge) {
-      if (p === 'gen') { liveBadge.hidden = false; liveBadge.dataset.kind = 'gen'; liveBadge.textContent = `AI 正在布光「${sceneName(S.scene)}」…`; }
+      if (p === 'gen') { liveBadge.hidden = false; liveBadge.dataset.kind = 'gen'; liveBadge.textContent = S.live ? '正在连接在线生成服务…' : '正在排版示例…'; }
       else if (!holdRaw) { liveBadge.hidden = true; }
     }
     if (drop) drop.hidden = p !== 'empty';
     if (dropOverlay) dropOverlay.hidden = p !== 'empty';
     if (hc) hc.hidden = p !== 'result';
     syncSpecTabs();
-    updateGo(); updateQuota(); redrawStage(); drawStrip();
+    updateGo(); updateQuota(); updateExportUi(); redrawStage(); drawStrip();
+    if (S.view !== 'studio') redrawAll();
   }
   function updateQuota() {
     const chip = $('#quotaChip');
@@ -815,15 +891,29 @@
         : (S.unlocked ? '当前已解锁不限次数授权，可随时使用真实模型包装。' : `当前网络已连接服务端，还可使用真实 AI 模型免费包装 ${S.remaining} 次。`);
     }
   }
+  function priceError() {
+    const price = S.price.trim();
+    if (!price) return '请填写售价，例如 18 或 18.5';
+    if (/^-?\d+(\.\d+)?$/.test(price) && Number(price) <= 0) return '售价需大于 0';
+    if (!/^(?:0|[1-9]\d{0,4})(?:\.\d{1,2})?$/.test(price)) return '售价请填数字，最高 99999.99，最多两位小数';
+    return '';
+  }
   function validate() {
     if (!S.photo) return '请先上传一张商品照片，或点击“载入示例”';
     if (!S.name.trim()) return '请填写商品名';
     if (S.name.trim().length > 40) return '商品名最多 40 字';
-    if (!/^\d{1,4}(\.\d{1,2})?$/.test(S.price.trim())) return '售价请填数字，例如 18 或 18.5';
-    if (Number(S.price.trim()) <= 0) return '售价需大于 0';
-    return '';
+    return priceError();
   }
-  function updateGo() { const e = validate(); $('#go').setAttribute('aria-disabled', e ? 'true' : 'false'); }
+  function updateGo() {
+    const error = validate();
+    $('#go').setAttribute('aria-disabled', String(!!error));
+    const hint = priceTouched || (S.photo && S.name.trim()) ? priceError() : '';
+    for (const [input, message] of [['#iPrice', '#priceErr'], ['#phInputPrice', '#phonePriceErr'], ['#fPrice', '#comparePriceErr']]) {
+      $(input)?.setAttribute('aria-invalid', String(!!hint));
+      const el = $(message);
+      if (el && el.textContent !== hint) el.textContent = hint;
+    }
+  }
 
   function sizeCanvasFor(id) {
     const sp = SHEETS.find(s => s.id === id) || SHEETS[0], c = stage();
@@ -908,9 +998,7 @@
   }
 
   function updateResult() {
-    $('#cupOk').checked = !!S.cupOk;
-    if ($('#confirmRow')?.classList) $('#confirmRow').classList.toggle('is-checked', !!S.cupOk);
-    if($('#compareConfirm')) $('#compareConfirm').checked = !!S.cupOk;
+    updateExportUi();
     const sp = SHEETS.find(s => s.id === S.sheet), k = S.kit[S.sheet]; if (!k || !sp) return;
     syncImageActions();
     $('#resTitle').textContent = sp.name;
@@ -918,30 +1006,54 @@
     const useAiMode = S.live || S.isSample;
     const fr = $(`input[name=fid][value=${useAiMode && k.mode !== 'raw' ? 'scene' : 'raw'}]`); if (fr) fr.checked = true;
     $$('input[name=fid]').forEach(i => { i.disabled = !useAiMode; });
-    const anyAi = useAiMode && Object.values(S.kit).some(x => x.status === 'done' && (x.mode === 'ai' || x.mode === 'scene'));
     $('#fidNote').textContent = !useAiMode ? '离线示例不调用模型，你的照片只能看原片版式。' : (k.mode === 'scene' || k.mode === 'ai') ? (S.live ? '背景和光线由 AI 真实生成，会尽量保持商品原样，下载前请核对。' : '示例由本地合成，未调用模型，道具不代表随单附赠。') : '使用原片排版，保留商品原样。';
-    $('#confirmRow').hidden = !anyAi;
+    $('#confirmRow').hidden = false;
     $('#vers').innerHTML = k.versions.map((v, i) => `<button type="button" data-i="${i}" aria-pressed="${i === k.cur}" aria-label="第 ${i + 1} 版">v${i + 1}</button>`).join('');
     $$('#vers button').forEach(b => b.addEventListener('click', () => { cancelImageFlow(); k.cur = +b.dataset.i; Object.assign(k, k.versions[k.cur]); redrawStage(); drawStrip(); updateResult(); }));
-    const reason = exportBlock();
-    $('#exportHint').textContent = reason;
-    $('#exportHint').dataset.err = reason ? '1' : '';
-    $('#exportAll').setAttribute('aria-disabled', reason ? 'true' : 'false');
-    $('#exportOne').setAttribute('aria-disabled', reason ? 'true' : 'false');
     const pending = Object.values(S.kit).filter(x => x.status !== 'done').length;
     $('#exportAll span').textContent = pending ? `下载已完成的 ${SHEETS.length - pending} 张和文案` : '打包下载全部 4 张和文案';
+  }
+  function updateExportUi() {
+    for (const id of ['#cupOk', '#compareConfirm']) {
+      const box = $(id);
+      if (box) box.checked = !!S.cupOk;
+    }
+    $('#confirmRow')?.classList?.toggle('is-checked', !!S.cupOk);
+    const reason = exportBlock();
+    for (const id of ['#exportHint', '#compareExportHint']) {
+      const hint = $(id);
+      if (!hint) continue;
+      if (hint.textContent !== reason) hint.textContent = reason;
+      hint.dataset.err = reason ? '1' : '';
+    }
+    for (const id of ['#exportAll', '#compareAll']) $(id)?.setAttribute('aria-disabled', String(!!reason));
+    for (const id of ['#exportOne', '#compareOne']) {
+      $(id)?.setAttribute('aria-disabled', String(!!reason || S.kit[S.sheet]?.status !== 'done'));
+    }
     renderAllCopy();
   }
   function exportBlock() {
+    if (S.phase === 'gen') return '正在生成，完成后可下载';
     if (!S.photo || !Object.values(S.kit).some(k=>k.status==='done')) return '请先生成商品图';
-    const anyAi = (S.live || S.isSample) && Object.values(S.kit).some(x => x.status === 'done' && (x.mode === 'ai' || x.mode === 'scene'));
-    if (anyAi && !S.cupOk) return '勾选上方核对确认框后即可下载';
-    const iss = SHEETS.flatMap(sp => {
-      const k=S.kit[sp.id]; if(k?.status !== 'done') return [];
-      const c=document.createElement('canvas'); c.width=sp.w;c.height=sp.h;
-      return render(c,sp.id,{mode:(S.live||S.isSample)?k.mode:'raw',seed:k.seed,scene:k.scene,facts:currentFacts(),src:S.isSample?null:S.photo,sceneImg:k.sceneImg});
-    });
-    if (iss.length) return iss[0] + '，请返回改短一点';
+    const invalid = validate();
+    if (invalid) return invalid;
+    if (!S.cupOk) return '勾选上方核对确认框后即可下载';
+    const { shop, offer } = currentFacts();
+    if (!shop && !offer) return '';
+    const metrics = document.createElement('canvas').getContext?.('2d');
+    if (!metrics) return '';
+    const [bannerSpec, posterSpec] = SHEETS.filter(sheet => sheet.text);
+    const banner = S.kit.banner;
+    if (banner?.status === 'done') {
+      const split = (S.live || S.isSample) && banner.mode === 'scene' && banner.sceneImg && S.fitMode !== 'cover';
+      const subtitle = [shop, offer].filter(Boolean).join(' · ');
+      if (!fitOffer(metrics, subtitle, bannerSpec.w * (split ? .48 : .55), bannerSpec.h * .085, bannerSpec.h * .05).ok) {
+        return '活动文字太长，Banner 放不下，请返回改短一点';
+      }
+    }
+    if (S.kit.poster?.status === 'done' && !fitOffer(metrics, offer, posterSpec.w * .56, posterSpec.w * .044, posterSpec.w * .028).ok) {
+      return '活动文字太长，海报放不下，请返回改短一点';
+    }
     return '';
   }
 
@@ -957,17 +1069,25 @@
     try {
       const run = task.run; task.startedAt = Date.now(); S.kit = {}; S.cupOk = false; $('#cupOk').checked = false; S.sheet = 'main';
       SHEETS.forEach(sd => S.kit[sd.id] = { status: 'wait', mode: S.live ? 'scene' : 'ai', seed: 2, scene: S.scene, versions: [], cur: 0, sceneImg: null });
-      S.aiDetail = ''; S.aiTitle = ''; S.copyStale = false;
-      delete S.editedCopy;
       $('#cancel').hidden = false;
-      $('#genNote').textContent = S.live ? '请求已提交，服务端处理中。离开等待不会撤回任务或退还已结算额度。' : '本地排版处理中，未调用在线模型。';
+      $('#genNote').textContent = S.live ? '在线生成可能需要一两分钟。返回编辑后，本次请求仍会继续。' : '本地排版处理中，未调用在线模型。';
       if (S.live) SHEETS.forEach(sd => { S.kit[sd.id].status = 'run'; });
-      setPhase('gen'); renderSteps(0);
-      const tick=()=>{if(generationTask !== task)return; const sec=Math.floor((Date.now()-task.startedAt)/1000); $('#genTimer').textContent=`已用时 ${sec} 秒`; if(S.live) renderSteps(sec); setTimeout(tick,1000);}; if(typeof performance !== 'undefined') tick();
+      setPhase('gen');
+      if (S.live) setGenerationStage('submit');
+      else renderSteps();
+      const tick = () => {
+        if (generationTask !== task || S.phase !== 'gen') return;
+        const sec = Math.floor((Date.now() - task.startedAt) / 1000);
+        $('#genTimer').textContent = `已用时 ${sec} 秒`;
+        setTimeout(tick, 1000);
+      };
+      if (typeof performance !== 'undefined') tick();
 
       if (S.live) {
         try {
-          const result = await apiPost('/api/package', buildPayload());
+          const result = await apiPost('/api/package', buildPayload(), stage => {
+            if (run === S.run) setGenerationStage(stage);
+          });
           if (run !== S.run) { saveLateResult(result, task); return; }
           acceptQuota(result);
           imageRecovery = { run, result, kind: 'package' };
@@ -992,6 +1112,7 @@
         if (!reduced()) dealIn(sd.id);
       }
       S.sheet = SHEETS.find(sd => S.kit[sd.id].status === 'done').id;
+      S.aiTitle = ''; S.aiDetail = ''; S.aiPoints = []; S.copyStale = false;
       setPhase('result'); toast('示例已生成（未调用在线 AI 模型）');
       updateResult();
     } finally { finishGeneration(task); }
@@ -1007,19 +1128,24 @@
     const b = $(`#strip button[data-id=${id}]`); if (!b || !b.animate) return;
     b.animate([{ transform: 'translateY(-16px) scale(1.06)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
-  function renderSteps(sec = 0) {
+  function setGenerationStage(stage) {
+    const labels = {
+      submit: '已发起请求，正在等待在线服务确认…',
+      copy: '在线服务已接收资料，正在生成文案…',
+      scene: '文案已生成，正在生成商品场景…',
+      settling: '场景已生成，正在确认生成记录…',
+      download: '生成已完成，正在载入图片并排版…',
+    };
+    const steps = $('#steps');
+    if (!steps || !Object.hasOwn(labels, stage)) return;
+    steps.innerHTML = '<li data-status="run"><span></span></li>';
+    $('#steps span').textContent = labels[stage];
+    const badge = $('#stageLiveBadge');
+    if (badge && S.phase === 'gen') badge.textContent = labels[stage];
+  }
+  function renderSteps() {
     const el = $('#steps');
     if (!el) return;
-    if (S.live) {
-      const stages = [
-        { name: '读取商品照与售卖事实', st: sec < 1 ? 'run' : 'done', lbl: sec < 1 ? '识别中' : '已完成' },
-        { name: 'AI 策划光影构图与文案', st: sec < 1 ? 'wait' : sec < 7 ? 'run' : 'done', lbl: sec < 1 ? '待开始' : sec < 7 ? '撰写中' : '已完成' },
-        { name: `棚拍「${sceneName(S.scene)}」完整场景`, st: sec < 7 ? 'wait' : 'run', lbl: sec < 7 ? '待布光' : '布光拍摄中' },
-        { name: '同步排版 4 套外卖规格', st: 'wait', lbl: '等待出图' },
-      ];
-      el.innerHTML = stages.map(s => `<li data-status="${s.st}"><span>${s.name}</span><em>${s.lbl}</em></li>`).join('');
-      return;
-    }
     el.innerHTML = SHEETS.map(s => {
       const k = S.kit[s.id]; const t = { wait: '排队中', run: '生成中', done: '已完成', error: '没做成' }[k.status];
       return `<li data-status="${k.status}"><span>${s.name}</span><em>${t}</em></li>`;
@@ -1057,7 +1183,7 @@
       if (photoSelection !== selection) return;
       photoSelection = null;
       const short = Math.min(im.naturalWidth, im.naturalHeight);
-      photoRevision++; S.photo = im; S.isSample = false; pendingFile = f;
+      photoRevision++; S.kit = {}; invalidateCopy(); S.photo = im; S.isSample = false; pendingFile = f;
       setFitMode('contain');
       msg.dataset.kind = short < 800 ? 'warn' : '';
       const orient = im.naturalHeight > im.naturalWidth * 1.08 ? '竖构图' : im.naturalWidth > im.naturalHeight * 1.08 ? '横构图' : '方构图';
@@ -1090,6 +1216,8 @@
     S.aiDetail = '';
     S.aiPoints = [];
     S.copyStale = false;
+    delete S.editedCopyStale;
+    delete S.copyUndoStale;
     delete S.editedCopy;
     delete S.copyUndo;
     delete S.sampleUndo;
@@ -1109,10 +1237,11 @@
     const revision = photoRevision;
     try { await ensureSampleAssets(); } catch { toast('示例读取失败，可重试或上传照片'); return; }
     if (revision !== photoRevision) return;
-    if(!S.isSample) S.sampleUndo={photo:S.photo,isSample:S.isSample,name:S.name,shop:S.shop,price:S.price,offer:S.offer,high:S.high,scene:S.scene,fitMode:S.fitMode,photoMsg:$('#photoMsg').innerHTML,photoKind:$('#photoMsg').dataset.kind};
+    if(!S.isSample) S.sampleUndo={kit:S.kit,photo:S.photo,isSample:S.isSample,name:S.name,shop:S.shop,price:S.price,offer:S.offer,high:S.high,scene:S.scene,fitMode:S.fitMode,photoMsg:$('#photoMsg').innerHTML,photoKind:$('#photoMsg').dataset.kind};
     S.scene=scene;
     cancelPhotoSelection(); invalidateImageRequest(); photoRevision++;
     if($('#sampleUndo')) $('#sampleUndo').hidden=false;
+    if (!S.isSample) { S.kit = {}; invalidateCopy(); }
     S.photo = img.photo; S.isSample = true; pendingFile = null;
     setFitMode('contain');
     S.name = S.name || '冰奶油拿铁'; S.price = S.price || '18'; S.shop = S.shop || '拾叶咖啡';
@@ -1123,20 +1252,15 @@
     setPhase('ready');
   }
   function syncAllInputs() {
-    const map = [
-      ['#iName', '#phInputName', S.name],
-      ['#iPrice', '#phInputPrice', S.price],
-      ['#iShop', '#phInputShop', S.shop],
-      ['#iOffer', '#phInputOffer', S.offer],
-    ];
-    for (const [a, b, val] of map) {
-      if ($(a)) $(a).value = val;
-      if ($(b)) $(b).value = val;
+    const inputs = {
+      name: ['#iName', '#phInputName'], price: ['#iPrice', '#phInputPrice', '#fPrice'],
+      shop: ['#iShop', '#phInputShop'], offer: ['#iOffer', '#phInputOffer', '#fOffer'], high: ['#iHigh'],
+    };
+    for (const [key, ids] of Object.entries(inputs)) for (const id of ids) {
+      const input = $(id);
+      if (input && input.value !== S[key]) input.value = S[key];
     }
     syncScene();
-    if ($('#iHigh')) $('#iHigh').value = S.high;
-    if($('#fPrice')) $('#fPrice').value = S.price;
-    if($('#fOffer')) $('#fOffer').value = S.offer;
     updateBriefSummary();
   }
 
@@ -1146,23 +1270,42 @@
     c.width = sp.w; c.height = sp.h;
     render(c, id, { mode: (S.live || S.isSample) ? k.mode : 'raw', seed: k.seed, scene: k.scene, facts: currentFacts(), src: S.isSample ? null : S.photo, sceneImg: k.sceneImg });
     let q = .9, b;
-    do { b = await new Promise(r => c.toBlob(r, 'image/jpeg', q)); q -= .08; } while (b.size > sp.max * 1048576 && q > .4);
+    do { b = await new Promise(r => c.toBlob(r, 'image/jpeg', q)); if (!b) throw new Error('JPEG encoding failed'); q -= .08; } while (b.size > sp.max * 1048576 && q > .4);
     return b;
   }
-  const fname = id => { const sp = SHEETS.find(s => s.id === id); return `${currentFacts().name}_${sp.name}_${sp.w}x${sp.h}.jpg`; };
+  function safeProductFilename(name) {
+    const cleaned = name.normalize('NFC')
+      .replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069<>:"/\\|?*]/g, '_')
+      .replace(/^[.\s]+|[.\s]+$/g, '');
+    if (!cleaned || /^_+$/.test(cleaned)) return '商品';
+    return /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/i.test(cleaned) ? '_' + cleaned : cleaned;
+  }
+  const fname = (id, name = currentFacts().name) => {
+    const sp = SHEETS.find(s => s.id === id);
+    return `${safeProductFilename(name)}_${sp.name}_${sp.w}x${sp.h}.jpg`;
+  };
   function save(blob, name) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
   async function exportAll() {
     const r = exportBlock(); if (r) { toast(r); return; }
-    const btn = $('#exportAll'); btn.setAttribute('aria-busy', 'true');
-    const files = [];
-    for (const s of SHEETS) if (S.kit[s.id].status === 'done') files.push({ name: fname(s.id), data: new Uint8Array(await (await sheetBlob(s.id)).arrayBuffer()) });
-    files.push({ name: '上架文案.txt', data: new TextEncoder().encode(exportCopy(currentFacts())) });
-    const zip = makeZip(files);
-    window.__lastExport = files.map(f => ({ name: f.name, size: f.data.length }));
-    save(zip, `CafeBrief_${currentFacts().name}.zip`);
-    btn.removeAttribute('aria-busy'); toast(`已下载 ${files.length - 1} 张图和文案`);
+    const btn = $('#exportAll');
+    if (btn.getAttribute('aria-busy') === 'true') return;
+    btn.setAttribute('aria-busy', 'true');
+    const facts = currentFacts(), copy = exportCopy(facts);
+    try {
+      const images = SHEETS.filter(s => S.kit[s.id]?.status === 'done')
+        .map(s => ({ name: fname(s.id, facts.name), blob: sheetBlob(s.id) }));
+      const imagesReady = await Promise.all(images.map(async ({name, blob}) => ({
+        name, data: new Uint8Array(await (await blob).arrayBuffer()),
+      })));
+      const files = [...imagesReady, { name: '上架文案.txt', data: new TextEncoder().encode(copy) }];
+      const zip = makeZip(files);
+      window.__lastExport = files.map(f => ({ name: f.name, size: f.data.length }));
+      save(zip, `CafeBrief_${safeProductFilename(facts.name)}.zip`);
+      toast(`已下载 ${files.length - 1} 张图和文案`);
+    } catch { toast('打包未完成，请重试'); }
+    finally { btn.removeAttribute('aria-busy'); }
   }
   const crcT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
   const crc32 = d => { let c = 0xffffffff; for (let i = 0; i < d.length; i++) c = crcT[(c ^ d[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
@@ -1225,7 +1368,8 @@
 
   /* ---------- 左侧操作栏多页面切换 ---------- */
   function switchView(v, pushHash = true) {
-    if (!VIEWS[v]) v = 'studio';
+    if (!Object.hasOwn(VIEWS, v)) v = 'studio';
+    if (pushHash && S.view !== v && typeof history !== 'undefined') history.pushState(null, '', '#' + v);
     S.view = v;
     root.dataset.view = v;
     $$('.page-view').forEach(sec => { sec.hidden = sec.dataset.page !== v; });
@@ -1237,9 +1381,6 @@
     });
     if ($('#viewTitle')) $('#viewTitle').textContent = VIEWS[v].title;
     if ($('#viewDesc')) $('#viewDesc').textContent = VIEWS[v].desc;
-    if (pushHash && typeof history !== 'undefined' && history.replaceState) {
-      history.replaceState(null, '', '#' + v);
-    }
     if (v === 'studio') {
       if (S.pendingSample) { S.pendingSample = false; useSample(); }
       else redrawStage();
@@ -1253,7 +1394,8 @@
 
   function route() {
     const h = (typeof location !== 'undefined' && location.hash ? location.hash.slice(1) : '') || 'studio';
-    const v = VIEWS[h] ? h : 'studio';
+    if (h === 'main') return;
+    const v = Object.hasOwn(VIEWS, h) ? h : 'studio';
     switchView(v, false);
   }
 
@@ -1288,19 +1430,15 @@
   function mountStudio() {
     $('#scenes').innerHTML = SCENES.map(s => `<label class="chip scene-${s.id}"><i aria-hidden="true"></i><input type="radio" name="scene" value="${s.id}" ${s.id === S.scene ? 'checked' : ''}><span>${s.name}</span></label>`).join('');
     $$('input[name=scene]').forEach(i => i.addEventListener('change', () => { invalidateImageRequest(); S.scene = i.value; syncScene(); redrawStage(); redrawAll(); }));
-    const bind = (id, key, phId) => $(id).addEventListener('input', e => {
-      invalidateImageRequest(); S[key] = e.target.value;
-      if (phId && $(phId)) $(phId).value = e.target.value;
-      if (S.aiDetail || S.editedCopy != null) S.copyStale = true;
-      updateBriefSummary();
-      $('#briefErr').textContent = ''; updateGo(); redrawStage();
-      if (S.phase === 'result') { S.cupOk = false; $('#cupOk').checked = false; drawStrip(); updateResult(); }
+    for (const [id, key] of [['#iName', 'name'], ['#iPrice', 'price'], ['#iShop', 'shop'], ['#iOffer', 'offer'], ['#iHigh', 'high']]) {
+      $(id).addEventListener('input', e => updateFact(key, e.target.value));
+    }
+    for (const id of ['#iPrice', '#phInputPrice', '#fPrice']) {
+      $(id)?.addEventListener('blur', () => { priceTouched = true; updateGo(); });
+    }
+    $('#returnResult')?.addEventListener('click', () => {
+      if (Object.values(S.kit).some(k => k.status === 'done')) setPhase('result');
     });
-    bind('#iName', 'name', '#phInputName');
-    bind('#iPrice', 'price', '#phInputPrice');
-    bind('#iShop', 'shop', '#phInputShop');
-    bind('#iOffer', 'offer', '#phInputOffer');
-    bind('#iHigh', 'high');
 
     $$('#specTabs .spec-tab').forEach(btn => btn.addEventListener('click', () => {
       const id = btn.dataset.spec;
@@ -1329,7 +1467,7 @@
       if (err) {
         if (!S.photo) $('#drop')?.focus?.();
         else if (!S.name.trim() || S.name.trim().length > 40) { $('#iName')?.focus?.(); const f = $('#iName')?.closest?.('.field'); if (f?.classList) { f.classList.remove('is-invalid'); void f.offsetWidth; f.classList.add('is-invalid'); setTimeout(() => f.classList.remove('is-invalid'), 600); } }
-        else { $('#iPrice')?.focus?.(); const f = $('#iPrice')?.closest?.('.field'); if (f?.classList) { f.classList.remove('is-invalid'); void f.offsetWidth; f.classList.add('is-invalid'); setTimeout(() => f.classList.remove('is-invalid'), 600); } }
+        else { priceTouched = true; updateGo(); $('#iPrice')?.focus?.(); const f = $('#iPrice')?.closest?.('.field'); if (f?.classList) { f.classList.remove('is-invalid'); void f.offsetWidth; f.classList.add('is-invalid'); setTimeout(() => f.classList.remove('is-invalid'), 600); } }
       }
       return generate();
     });
@@ -1371,7 +1509,15 @@
     $$('input[name=fid]').forEach(i => i.addEventListener('change', () => { cancelImageFlow(); const k = S.kit[S.sheet]; const m = i.value === 'raw' ? 'raw' : (S.live ? 'scene' : 'ai'); k.mode = m; k.versions[k.cur].mode = m; redrawStage(); drawStrip(); updateResult(); }));
     $('#cupOk').addEventListener('change', e => { S.cupOk = e.target.checked; updateResult(); });
     $('#exportAll').addEventListener('click', exportAll);
-    $('#exportOne').addEventListener('click', async () => { const r = exportBlock(); if (r) return toast(r); save(await sheetBlob(S.sheet), fname(S.sheet)); toast(`已下载${SHEETS.find(s => s.id === S.sheet).name}`); });
+    $('#exportOne').addEventListener('click', async () => {
+      const reason = exportBlock();
+      if (reason) return toast(reason);
+      const id = S.sheet;
+      if (S.kit[id]?.status !== 'done') return toast('这个规格还未生成');
+      const name = fname(id);
+      try { save(await sheetBlob(id), name); toast(`已下载${SHEETS.find(s => s.id === id).name}`); }
+      catch { toast('图片下载未完成，请重试'); }
+    });
     $('#copyBtn').addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(exportCopy(currentFacts()));
@@ -1396,6 +1542,7 @@
       if (!S.sampleUndo) return;
       const { photoMsg, photoKind, ...previous } = S.sampleUndo;
       Object.assign(S, previous);
+      invalidateCopy();
       photoRevision++;
       syncAllInputs();
       invalidateImageRequest();
@@ -1408,11 +1555,20 @@
       delete S.sampleUndo;
       setPhase(S.photo ? 'ready' : 'empty');
     });
-    $('#resCopy')?.addEventListener('input', e => {S.copyUndo = S.editedCopy; S.editedCopy = e.target.textContent;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
-    $('#copyReset')?.addEventListener('click', () => {S.copyUndo=S.editedCopy;delete S.editedCopy;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
-    $('#copyUndo')?.addEventListener('click', () => {const prev=S.editedCopy;S.editedCopy=S.copyUndo;S.copyUndo=prev;S.cupOk=false;$('#cupOk').checked=false;updateResult();});
-    $$('#quickTags button').forEach(b => b.addEventListener('click', () => {const set=new Set(S.high.split(/[，,；;]/).map(x=>x.trim()).filter(Boolean));if(set.has(b.textContent))set.delete(b.textContent);else set.add(b.textContent);S.high=[...set].join('，');$('#iHigh').value=S.high;b.setAttribute('aria-pressed',set.has(b.textContent));invalidateImageRequest();}));
-    $('#lateResult')?.addEventListener('click', async () => {const last=S.lateResults.at(-1);if(!last || generationTask)return;Object.assign(S,last.facts);syncAllInputs();invalidateImageRequest();S.sheet=last.sheet||'main';if(last.kind==='package')SHEETS.forEach(sd=>S.kit[sd.id]={status:'wait',mode:'scene',seed:2,scene:S.scene,versions:[],cur:0});imageRecovery={run:S.run,result:last.result,kind:last.kind||'package',kit:S.kit[S.sheet],sheet:S.sheet};$('#lateResult').hidden=true;await recoverImage(imageRecovery);});
+    const setEditedCopy = (copy, stale = false) => {
+      S.copyUndo = S.editedCopy;
+      S.copyUndoStale = S.editedCopyStale;
+      S.editedCopy = copy;
+      S.editedCopyStale = stale;
+      S.cupOk = false;
+      updateExportUi();
+    };
+    $('#resCopy')?.addEventListener('input', e => setEditedCopy(e.target.innerText ?? e.target.textContent));
+    $('#copyReset')?.addEventListener('click', () => setEditedCopy(undefined));
+    $('#copyUndo')?.addEventListener('click', () => setEditedCopy(S.copyUndo, S.copyUndoStale));
+    $('#copyReapply')?.addEventListener('click', () => setEditedCopy(S.editedCopy));
+    $$('#quickTags button').forEach(b => b.addEventListener('click', () => {const set=new Set(S.high.split(/[，,；;]/).map(x=>x.trim()).filter(Boolean));if(set.has(b.textContent))set.delete(b.textContent);else set.add(b.textContent);updateFact('high',[...set].join('，'));b.setAttribute('aria-pressed',set.has(b.textContent));}));
+    $('#lateResult')?.addEventListener('click', async () => {const last=S.lateResults.at(-1);if(!last || generationTask)return;Object.assign(S,last.facts);invalidateCopy();syncAllInputs();invalidateImageRequest();S.sheet=last.sheet||'main';if(last.kind==='package')SHEETS.forEach(sd=>S.kit[sd.id]={status:'wait',mode:'scene',seed:2,scene:S.scene,versions:[],cur:0});imageRecovery={run:S.run,result:last.result,kind:last.kind||'package',kit:S.kit[S.sheet],sheet:S.sheet};$('#lateResult').hidden=true;await recoverImage(imageRecovery);});
     if ($('#retryConnect')) $('#retryConnect').addEventListener('click', () => retryProbe(true));
   }
 
@@ -1716,7 +1872,10 @@
     setRoast(S.roast, true);
     setPhase('empty');
     updateServiceUi('ready');
-    window.addEventListener('hashchange', route);
+    window.addEventListener('popstate', route);
+    window.addEventListener('hashchange', () => {
+      if (location.hash !== '#' + S.view) route();
+    });
     route();
     window.__cb = { S, setRoast, render, SHEETS, switchView, setFitMode, openLightbox };
 

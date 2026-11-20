@@ -13,8 +13,9 @@
 <meta property="og:description" content="传一张商品照，填名称和价格，主图、Banner、海报和上架文案一次做好。">
 <meta property="og:url" content="https://luyujun74-creator.github.io/cafe-brief/">
 <meta property="og:image" content="https://luyujun74-creator.github.io/cafe-brief/assets/og-cover.jpg">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="proto.css">
+<link rel="stylesheet" href="proto.css?v=review-upgrade">
 </head>
 <body>
 <a class="skip" href="#main">跳到工作区</a>
@@ -174,7 +175,7 @@
                 </label>
                 <label class="field">
                   <span>售价（元）<em>*</em></span>
-                  <input id="iPrice" inputmode="decimal" placeholder="18">
+                  <input id="iPrice" inputmode="decimal" placeholder="18" aria-describedby="priceErr" aria-invalid="false"><small class="field-err" id="priceErr" aria-live="polite"></small>
                 </label>
               </div>
 
@@ -207,7 +208,7 @@
                 </div>
               </details>
 
-              <button type="button" class="btn btn-xs btn-outline" id="lateResult" hidden>查看上一稿</button><button type="button" class="btn btn-xs btn-outline" id="sampleUndo" hidden>撤销示例</button><p class="field-err" id="briefErr" role="alert"></p>
+              <button type="button" class="btn btn-xs btn-outline" id="lateResult" hidden>查看上一稿</button><button type="button" class="btn btn-xs btn-outline" id="sampleUndo" hidden>撤销示例</button><button type="button" class="btn btn-xs btn-outline" id="returnResult" hidden>返回当前成品</button><p class="field-err" id="briefErr" role="alert"></p>
 
               <div class="cta-dock">
                 <button class="btn btn-primary btn-wide" id="go" type="button">
@@ -224,7 +225,7 @@
                 <span class="badge badge-blue" id="genTimer">进行中</span>
               </div>
               <ol class="steps" id="steps" aria-live="polite"></ol>
-              <p class="fine" id="genNote">AI 正在为你布光并排版，通常需 25–45 秒；你可以先去改信息，后台会继续出图。</p>
+              <p class="fine" id="genNote">正在准备生成请求。</p>
               <button class="btn btn-outline btn-wide" id="cancel" type="button"><span>先去改信息（后台继续出图）</span></button>
             </div>
 
@@ -254,14 +255,14 @@
                   <span>上架文案</span>
                   <button class="btn btn-xs btn-soft" id="copyBtn" type="button"><span>复制文案</span></button>
                 </summary>
-                <p class="sample-copy" id="resCopy" contenteditable="true" role="textbox" aria-label="编辑上架文案"></p><div><button type="button" class="btn btn-xs btn-link" id="copyReset">重置文案</button><button type="button" class="btn btn-xs btn-link" id="copyUndo">撤销编辑</button></div>
+                <p class="sample-copy" id="resCopy" contenteditable="true" role="textbox" aria-label="编辑上架文案"></p><div><button type="button" class="btn btn-xs btn-link" id="copyReset">重置文案</button><button type="button" class="btn btn-xs btn-link" id="copyUndo">撤销编辑</button><button type="button" class="btn btn-xs btn-link" id="copyReapply" hidden>核对后采用手改文案</button></div>
                 <p class="fine" id="copyNote"></p>
               </details>
 
               <div class="cta-dock result-export">
               <label class="confirm" id="confirmRow">
                 <input type="checkbox" id="cupOk">
-                <span>已核对：杯型、配料与分量和我实际售卖的一致</span>
+                <span>已核对商品、价格、活动与实际售卖一致</span>
               </label>
 
 
@@ -316,7 +317,7 @@
               </label>
               <label class="field">
                 <span>实时改价预览（元）</span>
-                <input id="phInputPrice" inputmode="decimal" placeholder="18">
+                <input id="phInputPrice" inputmode="decimal" placeholder="18" aria-describedby="phonePriceErr" aria-invalid="false"><small class="field-err" id="phonePriceErr" aria-live="polite"></small>
               </label>
               <label class="field">
                 <span>店铺名称</span>
@@ -404,20 +405,21 @@
               </div>
 
               <div class="facts-panel">
-                <h3>AI 文案事实审核区</h3>
-                <p class="sub-text">价格与活动严格按你填写内容输出；蓝色虚线标签为 AI 补充修饰词，点击决定是否保留到导出文案中：</p>
+                <h3>当前导出文案</h3>
                 <div class="facts-inputs">
-                  <label class="field"><span>售价（元，同步至工作台）</span><input id="fPrice" inputmode="decimal" value="18"></label>
+                  <label class="field"><span>售价（元，同步至工作台）</span><input id="fPrice" inputmode="decimal" placeholder="18" aria-describedby="comparePriceErr" aria-invalid="false"><small class="field-err" id="comparePriceErr" aria-live="polite"></small></label>
                   <label class="field"><span>活动（同步至工作台）</span><input id="fOffer" maxlength="120" placeholder="例如：第二杯半价"></label>
                 </div>
                 <p class="sample-copy" id="factsCopy"></p>
-                <p class="fine" id="factsCopyNote">点击蓝色标签可切换“保留 / 不保留”，仅保留项会进入导出文案。</p>
+                <p class="fine" id="factsCopyNote" role="status"></p>
+                <div id="copyClaims" class="sample-copy" aria-label="可选示例描述" hidden></div>
                 <div class="compare-export result-export">
-                  <label class="confirm"><input id="compareConfirm" type="checkbox">已核对商品和事实</label>
+                  <label class="confirm"><input id="compareConfirm" type="checkbox">已核对商品、价格、活动与实际售卖一致</label>
                   <div class="compare-export-actions">
                     <button class="btn btn-outline" id="compareOne">下载当前图</button>
                     <button class="btn btn-primary" id="compareAll">打包下载全部</button>
                   </div>
+                  <p class="export-hint" id="compareExportHint" role="status"></p>
                 </div>
                 <div class="facts-poster-wrap">
                   <canvas id="factsPoster" width="600" height="800" aria-label="随输入实时更新的竖版海报"></canvas>
@@ -467,9 +469,22 @@
               <button type="button" class="btn btn-outline" id="guideRetryBtn">检测服务端连接</button>
             </div>
           </div>
+          <section class="panel-card" id="aboutProject">
+            <h2>关于 Café Brief</h2>
+            <p class="sub-text">为咖啡和饮品商家制作外卖图片、门店海报及上架文案。</p>
+            <h3>照片会发到哪里？</h3>
+            <p class="sub-text">选照片、预览和下载在浏览器内完成。点在线生成时，浏览器把缩小后的照片与填写的资料发送给 Cloudflare 后端。豆包处理商品资料，Seedream 接收照片并生成场景。后端的成品取图链接约 60 分钟内有效。</p>
+            <h3>怎样获取解锁密码？</h3>
+            <p class="sub-text">免费额度用完后，请向项目维护者申请授权。获得密码后，在本页「输入解锁密码」中填写。项目仓库可用于联系维护者。</p>
+          </section>
         </div>
       </section>
     </main>
+    <footer class="project-footer">
+      <span>Café Brief</span>
+      <button type="button" class="btn-link" id="aboutLink">关于与照片去向</button>
+      <a href="https://github.com/luyujun74-creator/cafe-brief">GitHub 项目仓库</a>
+    </footer>
   </div>
 </div>
 
@@ -499,7 +514,7 @@
       <h2 id="ulTitle">解锁不限次数包装</h2>
       <button class="btn-link" type="button" id="ulClose">关闭</button>
     </div>
-    <p class="sub-text">免费体验次数用完后，输入授权解锁密码即可不限次数生成；已生成的图片可随时下载。</p>
+    <p class="sub-text">免费体验次数用完后，可向项目维护者申请解锁密码。</p>
     <label class="field">
       <span>解锁密码</span>
       <input id="ulPwd" type="password" autocomplete="off" placeholder="请输入解锁密码" aria-describedby="ulErr">
@@ -547,6 +562,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="config.js" defer></script>
-<script src="app.js?v=3c8bea5" defer></script>
+<script src="app.js?v=review-upgrade" defer></script>
 </body>
 </html>

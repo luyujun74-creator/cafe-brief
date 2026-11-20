@@ -1023,3 +1023,14 @@ body { background: radial-gradient(ellipse at 88% 5%,rgba(213,172,116,.20),trans
 }
 .lb-stage { grid-row: 3; }
 .lb-dock { grid-row: 4; }
+
+.field input[aria-invalid="true"] { border-color: var(--err); }
+#factsCopy { white-space: pre-wrap; overflow-wrap: anywhere; }
+#aboutProject { scroll-margin-top: calc(var(--topbar-h) + 16px); }
+#aboutProject h3 { margin-top: 12px; margin-bottom: 4px; }
+.project-footer {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  color: var(--text-3); font-size: var(--fs-12);
+}
+.project-footer a { color: var(--brand); }

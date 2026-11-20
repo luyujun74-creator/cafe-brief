@@ -340,3 +340,23 @@ test('settlement failure retries recorded result without another upstream call',
  assert.equal((await worker.fetch(request('/api/generate',data),e,{fetch})).status,200);
  assert.equal(calls,1);assert.equal([...e.DB.rows.values()][0].uses,1);
 });
+
+test('opt-in packaging stream reports actual stages and pure studio uses a seamless set', async () => {
+  const e = await env();
+  e.ARK_IMAGE_MODEL = 'image-model';
+  const calls = [];
+  const provider = async (url, options) => {
+    calls.push(url);
+    if (!url.endsWith('/images/generations')) return model();
+    const {prompt} = JSON.parse(options.body);
+    assert.match(prompt, /无缝背景/);
+    assert.match(prompt, /白色矩形/);
+    return Response.json({data:[{url:'https://example.volces.com/r.png'}]});
+  };
+  const r = await worker.fetch(request('/api/package?progress=1', {...facts, style:'纯色影棚', image:IMAGE_DATA}), e, {fetch:provider});
+  assert.match(r.headers.get('content-type'), /application\/x-ndjson/);
+  const messages = (await r.text()).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(messages.filter(x=>x.stage).map(x=>x.stage), ['copy', 'scene', 'settling']);
+  assert.equal(messages.at(-1).result.remaining, 2);
+  assert.equal(calls.length, 2);
+});

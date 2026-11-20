@@ -6,17 +6,23 @@ window.cbTest = {
   f.style.cssText=`width:${width}px;height:${height}px;border:0;transform:scale(${Math.min(1,1240/width,700/height)});transform-origin:top left`;
   const html=await (await fetch('/index.html',{cache:'no-store'})).text();
   const setup=`<base href="${location.origin}/"><script>
-   history.replaceState=()=>{};sessionStorage.removeItem('cb_status_v2');window.testCalls=[];window.testDownloads=[];window.testErrors=[];
+   const push=history.pushState.bind(history);
+   history.pushState=(state,title,url)=>push(state,title,'about:srcdoc'+url);
+   sessionStorage.removeItem('cb_status_v2');window.testCalls=[];window.testDownloads=[];window.testErrors=[];
    addEventListener('error',e=>testErrors.push(e.message));
    const originalFetch=fetch.bind(window);let left=1;
    window.fetch=async(u,o)=>{testCalls.push({url:String(u),method:o?.method||'GET'});
     if(String(u).includes('/api/status')){if('${mode}'==='ready')return new Promise(()=>{});if('${mode}'==='demo')throw Error('offline');return new Response(JSON.stringify({remaining:'${mode}'==='locked'?0:left,unlimited:false}));}
     if(String(u).includes('/api/package')||String(u).includes('/api/generate-image')){left=0;return new Response(JSON.stringify({title:'拿铁',detail:'拿铁',remaining:0,unlimited:false,image_url:'/assets/sample-photo.webp'}));}
+    const target=new URL(u,location.origin==='null'?document.baseURI:location.origin);
+    if(target.pathname.startsWith('/assets/'))return originalFetch(new URL(target.pathname,document.baseURI),o);
+    if(target.protocol==='data:')return originalFetch(u,o);
+    if(target.origin!==new URL(document.baseURI).origin||target.pathname.startsWith('/api/'))throw Error('Unmocked API request: '+target.pathname);
     return originalFetch(u,o);};
    document.addEventListener('click',e=>{const a=e.target.closest('a[download]');if(a){e.preventDefault();testDownloads.push(fetch(a.href).then(r=>r.blob()).then(async b=>({name:a.download,type:b.type,bytes:b.size,head:[...new Uint8Array(await b.slice(0,4).arrayBuffer())]})));}},true);
   <\/script>`;
   let body=html.replace('<head>','<head>'+setup);
-  if(cache==='cold' || true) body=body.replace(/(src|href)="(app.js|config.js|proto.css|tokens.css)"/g,(_,a,b)=>`${a}="${b}?cold=${Math.random()}"`);
+  if(cache==='cold') body=body.replace(/(src|href)="(app.js|config.js|proto.css|tokens.css)(?:\?[^"]*)?"/g,(_,a,b)=>`${a}="${b}?cold=${Math.random()}"`);
   f.srcdoc=body;
   await new Promise(r=>f.onload=r);const w=f.contentWindow;
   await this.until(()=>w.__cb && w.performance.getEntriesByName('app-interactive').length);
