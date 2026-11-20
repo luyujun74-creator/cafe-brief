@@ -16,7 +16,7 @@ http.createServer((req, res) => {
   if (!file.startsWith(root + path.sep)) { res.writeHead(403); return res.end(); }
   if (url.pathname === '/api/status') {
     res.setHeader('content-type', 'application/json');
-    return res.end(JSON.stringify({ configured: false, remaining: null, unlimited: false }));
+    return res.end(JSON.stringify({ configured: false, remaining: 0, unlimited: false }));
   }
   fs.readFile(file, (error, data) => {
     if (error) { res.writeHead(404); return res.end(); }

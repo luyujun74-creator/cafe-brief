@@ -66,11 +66,12 @@
         const { value, done } = await reader.read();
         pending += decoder.decode(value, { stream: !done });
         const lines = pending.split('\n');
-        pending = lines.pop();
+        if (!done) pending = lines.pop();
         for (const line of lines) {
           if (!line) continue;
           const event = JSON.parse(line);
           if (event.stage) reportStage(event.stage);
+          if (event.error || event.code) return event;
           if (event.result) result = event.result;
         }
         if (done) break;
@@ -91,7 +92,12 @@
       const payload = reportStage && response.body && response.headers.get('content-type')?.includes('application/x-ndjson')
         ? await readGenerationStream(response, reportStage)
         : await response.json();
-      if (!response.ok || payload?.code) { if (!['GENERATION_BUSY','QUOTA_REPAIR_REQUIRED'].includes(payload?.code)) retryRequests.delete(path); const e = new Error(payload?.error || '请求失败'); e.code = payload?.code || ('HTTP_' + response.status); throw e; }
+      if (!response.ok || payload?.code || payload?.error) {
+        if (!['GENERATION_BUSY', 'QUOTA_REPAIR_REQUIRED'].includes(payload?.code)) retryRequests.delete(path);
+        const error = new Error(payload?.error || '请求失败');
+        error.code = payload?.code || (response.ok ? 'SERVER_ERROR' : 'HTTP_' + response.status);
+        throw error;
+      }
       retryRequests.delete(path); return payload;
     } catch(e) { if(e.code) throw e; const err = new Error('连接中断，任务可能仍在处理，请勿重复提交'); err.code = 'NETWORK'; throw err; }
     finally { if(timer) clearTimeout(timer); }
@@ -221,6 +227,12 @@
       const sceneImg = await loadScene(job.result.image_url);
       if (job !== imageRecovery || job.run !== S.run) return;
       if (job.kind === 'package') {
+        if (S.editedCopy != null) {
+          S.copyUndo = S.editedCopy;
+          S.copyUndoStale = S.editedCopyStale;
+          delete S.editedCopy;
+          delete S.editedCopyStale;
+        }
         S.aiTitle = job.result.title || ''; S.aiDetail = job.result.detail || '';
         S.aiPoints = Array.isArray(job.result.selling_points) ? job.result.selling_points : [];
         S.copyStale = false;
@@ -411,6 +423,20 @@
   function fitOffer(ctx, text, maxWidth, start, min) {
     return fitFont(ctx, text, maxWidth, Math.round(start), Math.round(min), '500');
   }
+  function drawOffer(ctx, text, x, y, width, size, min) {
+    const fit = fitOffer(ctx, text, width, size, min);
+    if (fit.ok) {
+      ctx.fillText(text, x, y, width);
+    } else {
+      let prefix = '';
+      for (const character of text) {
+        if (ctx.measureText(prefix + character + '…').width > width) break;
+        prefix += character;
+      }
+      ctx.fillText(prefix + '…', x, y, width);
+    }
+    return fit.ok;
+  }
   function textLayer(ctx, w, h, sp, f, t, layout, photographic = false, splitBanner = false) {
     const issues = [];
     if (photographic) {
@@ -441,10 +467,7 @@
       const sub = [f.shop, f.offer].filter(Boolean).join(' · ');
       if (sub) {
         const maxWidth = w * (splitBanner ? .48 : .55);
-        const fit = fitOffer(ctx, sub, maxWidth, h * .085, h * .05);
-        if (!fit.ok) issues.push('活动文字太长，Banner 放不下');
-        ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; if (splitBanner) ctx.fillText(sub, m, h * .88, maxWidth);
-        else ctx.fillText(sub, m, h * .88);
+        if (!drawOffer(ctx, sub, m, h * .88, maxWidth, h * .085, h * .05)) issues.push('活动文字太长，Banner 放不下');
       }
     }
     return issues;
@@ -459,9 +482,7 @@
     ctx.fillStyle = t.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     if (f.price) { ctx.font = `700 ${Math.round(w * .14)}px ${DISPLAY_FONT}`; ctx.fillText(`¥${f.price}`, m, h * .93 - (f.offer ? h * .05 : 0)); }
     if (f.offer) {
-      const fit = fitOffer(ctx, f.offer, w * .56, w * .044, w * .028);
-      if (!fit.ok) issues.push('活动文字太长，海报放不下');
-      ctx.font = `500 ${fit.size}px ${DISPLAY_FONT}`; ctx.fillText(f.offer, m, h * .935);
+      if (!drawOffer(ctx, f.offer, m, h * .935, w * .56, w * .044, w * .028)) issues.push('活动文字太长，海报放不下');
     }
     return issues;
   }
@@ -641,8 +662,20 @@
 
   /* ---------- 多页面预览渲染（按当前可见页面懒渲染） ---------- */
   function renderPhoneView() {
-    if(!S.photo) return;
-    const pf = S.photo ? currentFacts() : previewFacts();
+    const pf = currentFacts();
+    $('#phName').textContent = pf.name || '商品名';
+    $('#phShopTitle').textContent = pf.shop || '自营咖啡门店';
+    $('#phShopSub').textContent = pf.shop ? `${pf.shop} · 商品预览` : '商品预览';
+    $('#phPrice').textContent = pf.price ? `¥${pf.price}` : '—';
+    const offerEl = $('#phOfferTag');
+    offerEl.hidden = !pf.offer;
+    offerEl.textContent = pf.offer;
+    if (!S.photo) {
+      for (const canvas of [$('#phThumb'), $('#phBanner')]) {
+        if (renderCache.delete(canvas)) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      }
+      return;
+    }
     const checked = $('input[name=ph]:checked');
     const pk = checked ? checked.value === 'pack' : true;
     const kM = S.kit.main, kB = S.kit.banner;
@@ -657,15 +690,6 @@
       render($('#phBanner'), 'banner', { mode: pk ? ((S.live || S.isSample) ? kB.mode : 'raw') : 'raw', seed: kB.seed, scene: kB.scene, facts: pf, src, sceneImg: pk ? kB.sceneImg : null });
     } else {
       render($('#phBanner'), 'banner', { mode: pk && !useUserPhoto ? 'ai' : 'raw', facts: pf, scene: S.scene, seed: 2, src });
-    }
-    if ($('#phName')) $('#phName').textContent = pf.name;
-    if ($('#phShopTitle')) $('#phShopTitle').textContent = pf.shop || '自营咖啡门店';
-    if ($('#phShopSub')) $('#phShopSub').textContent = pf.shop ? `${pf.shop} · 商品预览` : '商品预览';
-    if ($('#phPrice')) $('#phPrice').textContent = `¥${pf.price}`;
-    const offerEl = $('#phOfferTag');
-    if (offerEl) {
-      offerEl.hidden = !pf.offer;
-      offerEl.textContent = pf.offer || '';
     }
   }
 
@@ -716,7 +740,7 @@
   }
 
   function drawHome() {
-    if (S.view === 'phone' && S.photo) renderPhoneView();
+    if (S.view === 'phone') renderPhoneView();
     else if (S.view === 'compare' && S.photo) renderCompareView();
   }
 
@@ -792,8 +816,9 @@
       if (f.offer) out.push(`活动：${f.offer}`);
       return out.join('\n') + '\n';
     }
-    if (S.aiDetail) {
-      const out = [`商品标题：${S.aiTitle}`, `店名：${f.shop}`, `售价：CNY ¥${f.price}`, `商品描述：${S.aiDetail}`];
+    if (S.aiTitle || S.aiDetail) {
+      const out = [S.aiTitle ? `商品标题：${S.aiTitle}` : `商品名称：${f.name}`, `店名：${f.shop}`, `售价：CNY ¥${f.price}`];
+      if (S.aiDetail) out.push(`商品描述：${S.aiDetail}`);
       if (f.offer) out.push(`活动：${f.offer}`);
       return out.join('\n') + '\n';
     }
@@ -805,6 +830,8 @@
     return lines.join('\n') + '\n';
   }
   function renderAllCopy() {
+    const undo = $('#copyUndo');
+    if (undo) undo.disabled = !Object.hasOwn(S, 'copyUndo');
     const stale = S.editedCopy != null ? S.editedCopyStale : S.copyStale;
     const factsCopyNote = $('#factsCopyNote');
     if (factsCopyNote) factsCopyNote.textContent = stale
@@ -1096,8 +1123,8 @@
           if (run !== S.run) return;
           if (e.code === 'QUOTA_EXCEEDED') { S.remaining = 0; setPhase('ready'); return openUnlock(); }
           if (e.code === 'RATE_LIMIT') return showError('ratelimit');
-          if (['GENERATION_BUSY', 'PUBLIC_BUDGET_EXCEEDED', 'INPUT_INVALID', 'MODEL_FAILED', 'QUOTA_REPAIR_REQUIRED'].includes(e.code)) return showError('server', e.message);
-          return showError('network');
+          if (!e.code || e.code === 'NETWORK') return showError('network');
+          return showError('server', e.message);
         }
         return;
       }
@@ -1556,6 +1583,7 @@
       setPhase(S.photo ? 'ready' : 'empty');
     });
     const setEditedCopy = (copy, stale = false) => {
+      if (copy === S.editedCopy && stale === !!S.editedCopyStale) return;
       S.copyUndo = S.editedCopy;
       S.copyUndoStale = S.editedCopyStale;
       S.editedCopy = copy;
@@ -1565,7 +1593,9 @@
     };
     $('#resCopy')?.addEventListener('input', e => setEditedCopy(e.target.innerText ?? e.target.textContent));
     $('#copyReset')?.addEventListener('click', () => setEditedCopy(undefined));
-    $('#copyUndo')?.addEventListener('click', () => setEditedCopy(S.copyUndo, S.copyUndoStale));
+    $('#copyUndo')?.addEventListener('click', () => {
+      if (Object.hasOwn(S, 'copyUndo')) setEditedCopy(S.copyUndo, S.copyUndoStale);
+    });
     $('#copyReapply')?.addEventListener('click', () => setEditedCopy(S.editedCopy));
     $$('#quickTags button').forEach(b => b.addEventListener('click', () => {const set=new Set(S.high.split(/[，,；;]/).map(x=>x.trim()).filter(Boolean));if(set.has(b.textContent))set.delete(b.textContent);else set.add(b.textContent);updateFact('high',[...set].join('，'));b.setAttribute('aria-pressed',set.has(b.textContent));}));
     $('#lateResult')?.addEventListener('click', async () => {const last=S.lateResults.at(-1);if(!last || generationTask)return;Object.assign(S,last.facts);invalidateCopy();syncAllInputs();invalidateImageRequest();S.sheet=last.sheet||'main';if(last.kind==='package')SHEETS.forEach(sd=>S.kit[sd.id]={status:'wait',mode:'scene',seed:2,scene:S.scene,versions:[],cur:0});imageRecovery={run:S.run,result:last.result,kind:last.kind||'package',kit:S.kit[S.sheet],sheet:S.sheet};$('#lateResult').hidden=true;await recoverImage(imageRecovery);});

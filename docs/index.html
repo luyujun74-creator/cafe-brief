@@ -15,7 +15,7 @@
 <meta property="og:image" content="https://luyujun74-creator.github.io/cafe-brief/assets/og-cover.jpg">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="proto.css?v=review-upgrade">
+<link rel="stylesheet" href="proto.css?v=review-rework">
 </head>
 <body>
 <a class="skip" href="#main">跳到工作区</a>
@@ -255,7 +255,7 @@
                   <span>上架文案</span>
                   <button class="btn btn-xs btn-soft" id="copyBtn" type="button"><span>复制文案</span></button>
                 </summary>
-                <p class="sample-copy" id="resCopy" contenteditable="true" role="textbox" aria-label="编辑上架文案"></p><div><button type="button" class="btn btn-xs btn-link" id="copyReset">重置文案</button><button type="button" class="btn btn-xs btn-link" id="copyUndo">撤销编辑</button><button type="button" class="btn btn-xs btn-link" id="copyReapply" hidden>核对后采用手改文案</button></div>
+                <p class="sample-copy" id="resCopy" contenteditable="true" role="textbox" aria-label="编辑上架文案"></p><div><button type="button" class="btn btn-xs btn-link" id="copyReset">重置文案</button><button type="button" class="btn btn-xs btn-link" id="copyUndo" disabled>撤销编辑</button><button type="button" class="btn btn-xs btn-link" id="copyReapply" hidden>核对后采用手改文案</button></div>
                 <p class="fine" id="copyNote"></p>
               </details>
 
@@ -483,7 +483,7 @@
     <footer class="project-footer">
       <span>Café Brief</span>
       <button type="button" class="btn-link" id="aboutLink">关于与照片去向</button>
-      <a href="https://github.com/luyujun74-creator/cafe-brief">GitHub 项目仓库</a>
+      <a href="https://github.com/luyujun74-creator/cafe-brief" target="_blank" rel="noopener noreferrer">GitHub 项目仓库</a>
     </footer>
   </div>
 </div>
@@ -562,6 +562,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="config.js" defer></script>
-<script src="app.js?v=review-upgrade" defer></script>
+<script src="app.js?v=review-rework" defer></script>
 </body>
 </html>

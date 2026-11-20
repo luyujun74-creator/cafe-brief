@@ -8,7 +8,13 @@ window.cbTest = {
   const setup=`<base href="${location.origin}/"><script>
    const push=history.pushState.bind(history);
    history.pushState=(state,title,url)=>push(state,title,'about:srcdoc'+url);
-   sessionStorage.removeItem('cb_status_v2');window.testCalls=[];window.testDownloads=[];window.testErrors=[];
+   const storage = new Map();
+   Object.defineProperty(window, 'sessionStorage', {value:{
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: key => storage.delete(key),
+   }});
+   window.testCalls=[];window.testDownloads=[];window.testErrors=[];
    addEventListener('error',e=>testErrors.push(e.message));
    const originalFetch=fetch.bind(window);let left=1;
    window.fetch=async(u,o)=>{testCalls.push({url:String(u),method:o?.method||'GET'});

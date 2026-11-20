@@ -707,8 +707,10 @@ body { background: radial-gradient(ellipse at 88% 5%,rgba(213,172,116,.20),trans
 .proof .crop { display: flex; align-items: center; justify-content: center; }
 .proof canvas { min-width: 0; min-height: 0; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 @media (min-width:900px) {
+ html { scroll-padding-top: calc(var(--topbar-h) + 16px); }
  .studio { align-items: start; }
- .stage-card { position: sticky; top: calc(var(--topbar-h) + 16px); height: calc(100vh - 88px); min-height: 530px; }
+ .stage-card { height: calc(100vh - 88px); min-height: 530px; }
+ .stage-toolbar { position: sticky; top: calc(var(--topbar-h) + 4px); z-index: 2; background: var(--bg-surface); }
  .stage-viewport { min-height: 240px; }
  .stage-frame { max-width: 640px; max-height: calc(100vh - 290px); }
 }
@@ -1026,7 +1028,6 @@ body { background: radial-gradient(ellipse at 88% 5%,rgba(213,172,116,.20),trans
 
 .field input[aria-invalid="true"] { border-color: var(--err); }
 #factsCopy { white-space: pre-wrap; overflow-wrap: anywhere; }
-#aboutProject { scroll-margin-top: calc(var(--topbar-h) + 16px); }
 #aboutProject h3 { margin-top: 12px; margin-bottom: 4px; }
 .project-footer {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;

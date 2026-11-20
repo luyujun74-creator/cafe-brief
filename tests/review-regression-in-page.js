@@ -158,3 +158,139 @@ cbTest.longTitlesAndProgress = async function () {
  this.assert(w.testErrors.length === 0, '长标题和流式进度无脚本错误');
  return this.results;
 };
+
+cbTest.reviewRework = async function () {
+ const w = await this.open(1280, 720, 'online'), d = w.document;
+ const $ = selector => d.querySelector(selector);
+ const S = w.__cb.S;
+ const input = (selector, value) => {
+  $(selector).value = value;
+  $(selector).dispatchEvent(new w.Event('input', {bubbles:true}));
+ };
+ const originalFetch = w.fetch;
+ let events, packageRequests = 0, imageUnavailable = false;
+ w.fetch = (url, options) => {
+  if (imageUnavailable && String(url) === '/assets/sample-photo.webp') {
+   return Promise.resolve(new w.Response(null, {status:503}));
+  }
+  if (!String(url).includes('/api/package')) return originalFetch(url, options);
+  packageRequests++;
+  return Promise.resolve(new w.Response(events.map(event => JSON.stringify(event)).join('\n'), {
+   headers: {'content-type':'application/x-ndjson'},
+  }));
+ };
+ const stream = (title, detail) => [
+  {stage:'copy'}, {heartbeat:true}, {stage:'scene'},
+  {result:{title, detail, image_url:'/assets/sample-photo.webp', remaining:3}},
+ ];
+ const edit = '旧手改稿：旧价格与商品名称';
+ $('#trySample').click();
+ await this.until(() => S.photo && S.live);
+ events = stream('首版 AI 商品标题', '首版 AI 商品描述');
+ $('#go').click();
+ await this.until(() => S.phase === 'result' || S.phase === 'error');
+ this.assert(S.phase === 'result' && $('#copyUndo').disabled, '流式尾行无换行也可生成，且无历史不能撤销');
+ $('#cupOk').click();
+ $('#copyUndo').click();
+ this.assert($('#cupOk').checked, '无历史时点击撤销保留确认');
+ $('#resCopy').textContent = edit;
+ $('#resCopy').dispatchEvent(new w.Event('input', {bubbles:true}));
+ $('#restart').click();
+ input('#iName', '复验拿铁');
+ input('#iPrice', '27');
+ for (const errorEvent of [
+  {result:{code:'MODEL_FAILED', error:'模型生成失败，本次不计次数'}},
+  {code:'MODEL_FAILED', error:'模拟：模型生图失败'},
+ ]) {
+  events = [{stage:'copy'}, errorEvent];
+  (S.phase === 'error' ? $('#errRetry') : $('#go')).click();
+  await this.until(() => S.phase === 'error');
+  this.assert($('#errBody').textContent.includes((errorEvent.result || errorEvent).error), '保留 Worker 业务错误原文');
+  this.assert($('#resCopy').textContent === edit && S.editedCopyStale, '生成失败保留原手改稿和过期状态');
+ }
+ events = stream('复验拿铁 · 新 AI 标题', '新 AI 正文：新事实下的模拟描述');
+ imageUnavailable = true;
+ $('#errRetry').click();
+ await this.until(() => S.phase === 'error' && $('#errTitle').textContent.includes('图片已生成'));
+ this.assert($('#resCopy').textContent === edit && S.editedCopyStale, '图片加载失败期间保留过期手改稿');
+ imageUnavailable = false;
+ $('#errRetry').click();
+ await this.until(() => S.phase === 'result');
+ this.assert(packageRequests === 4 && $('#resCopy').textContent.includes('新 AI 正文') && !$('#resCopy').textContent.includes(edit), '再次生成成功后工作台默认展示新 AI 文案');
+ w.__cb.switchView('compare');
+ const copy = $('#factsCopy').textContent;
+ this.assert(copy.includes('¥27') && copy.includes('新 AI 正文') && !copy.includes(edit), '对比页采用新 AI 正文和新售价');
+ const makeURL = w.URL.createObjectURL.bind(w.URL);
+ let exportedZip;
+ w.URL.createObjectURL = blob => {
+  if (blob.type === 'application/zip') exportedZip = blob;
+  return makeURL(blob);
+ };
+ $('#compareConfirm').click();
+ $('#compareAll').click();
+ await this.until(() => exportedZip && w.testDownloads.length);
+ const download = await w.testDownloads[0];
+ const bytes = await exportedZip.arrayBuffer();
+ const zip = new DataView(bytes);
+ const decoder = new w.TextDecoder();
+ let cursor = 0, body;
+ while (zip.getUint32(cursor, true) === 0x04034b50) {
+  const size = zip.getUint32(cursor + 18, true);
+  const nameSize = zip.getUint16(cursor + 26, true);
+  const offset = cursor + 30 + nameSize + zip.getUint16(cursor + 28, true);
+  const name = decoder.decode(new Uint8Array(bytes, cursor + 30, nameSize));
+  if (name === '上架文案.txt') body = decoder.decode(new Uint8Array(bytes, offset, size));
+  cursor = offset + size;
+ }
+ this.assert(download.name === 'CafeBrief_复验拿铁.zip' && body === copy + '\n', '解包确认 ZIP 正文与对比页一致');
+ w.__cb.switchView('studio');
+ $('#copyUndo').click();
+ this.assert($('#resCopy').textContent === edit && !$('#cupOk').checked && !$('#copyReapply').hidden, '恢复旧稿后要求重新核对');
+ this.assert(!$('#factsCopy').textContent.includes(edit) && $('#compareAll').getAttribute('aria-disabled') === 'true', '恢复的过期稿不能直接导出');
+ $('#copyReapply').click();
+ $('#cupOk').click();
+ this.assert($('#factsCopy').textContent.includes(edit), '明确采用并核对后可导出手改稿');
+ w.scrollTo(0, 49);
+ await new Promise(resolve => w.requestAnimationFrame(resolve));
+ const banner = $('[data-spec="banner"]');
+ const rect = banner.getBoundingClientRect();
+ const scroll = w.scrollY;
+ this.assert(scroll === 49 && banner.contains(d.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)), '1280×720 下滚 49px 后 Banner 可命中');
+
+ w.__cb.switchView('phone');
+ const thumb = $('#phThumb'), shopBanner = $('#phBanner');
+ const opaque = canvas => canvas.getContext('2d').getImageData(1, 1, 1, 1).data[3];
+ this.assert(opaque(thumb) && opaque(shopBanner), '移除前手机画布有图');
+ w.__cb.switchView('studio');
+ $('#removePhoto').click();
+ w.__cb.switchView('phone');
+ input('#phInputName', '热美式');
+ input('#phInputPrice', '15');
+ input('#phInputShop', '复验店');
+ input('#phInputOffer', '到店优惠');
+ await this.until(() => $('#phName').textContent === '热美式');
+ this.assert($('#phPrice').textContent === '¥15' && $('#phShopTitle').textContent === '复验店' && $('#phOfferTag').textContent === '到店优惠', '无图时手机样机同步全部商品文字');
+ this.assert(!opaque(thumb) && !opaque(shopBanner), '无图时两张手机画布清除残图');
+
+ const offer = '仅周一到店第二杯半价不可与其他优惠同享'.repeat(6);
+ for (const spec of ['banner', 'poster']) {
+  const sheet = w.__cb.SHEETS.find(item => item.id === spec);
+  const canvas = d.createElement('canvas');
+  canvas.width = sheet.w;
+  canvas.height = sheet.h;
+  const ctx = canvas.getContext('2d');
+  const draws = [];
+  const fillText = ctx.fillText.bind(ctx);
+  ctx.fillText = (value, x, y, maxWidth) => {
+   if (value.includes('仅周一')) draws.push({value, x, width:Math.min(maxWidth ?? Infinity, ctx.measureText(value).width)});
+   return fillText(value, x, y, maxWidth);
+  };
+  const issues = w.__cb.render(canvas, spec, {mode:'raw', facts:{name:'复验拿铁', price:'27', offer, shop:'复验店'}});
+  this.assert(draws.length && draws.every(draw => draw.x + draw.width < sheet.w && draw.value.endsWith('…')), spec + ' 长活动预览保留字号、提示省略且不越界');
+  this.assert(issues.some(issue => issue.includes('活动文字太长')), spec + ' 保留超长活动导出校验');
+ }
+ const repo = $('a[href="https://github.com/luyujun74-creator/cafe-brief"]');
+ this.assert(repo.target === '_blank' && repo.relList.contains('noopener') && repo.relList.contains('noreferrer'), '仓库链接另开页面');
+ this.assert(w.testErrors.length === 0, '返工流程无脚本异常');
+ return {zip:download.name, body, scroll};
+};
