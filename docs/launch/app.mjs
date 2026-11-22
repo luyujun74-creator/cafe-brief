@@ -170,7 +170,7 @@ function loadHero() {
     subject.hidden = Boolean(draft.photo);
     if (!draft.photo) subject.classList.add('is-ready');
   }, { once: true });
-  subject.src = '/assets/sample-cut.webp';
+  subject.src = new URL('../assets/sample-cut.webp', import.meta.url).href;
 }
 window.addEventListener('load', () => {
   if (document.body.dataset.stage === 'intake' && !draft.photo) requestAnimationFrame(loadHero);
@@ -240,7 +240,7 @@ $('intake').addEventListener('pointermove', event => {
 });
 $('note').addEventListener('input', () => persist({ ...draft, note: $('note').value }));
 $('sample').addEventListener('click', () => withProgress('正在读取示例照片', async () => {
-    const response = await fetch('/assets/sample-photo.webp', { signal: AbortSignal.timeout(4000) });
+    const response = await fetch(new URL('../assets/sample-photo.webp', import.meta.url), { signal: AbortSignal.timeout(4000) });
     if (!response.ok) throw new Error('示例照片读取失败，请上传商品照片。');
     await acceptPhoto(new File([await response.blob()], '冰奶油拿铁示例.webp', { type: 'image/webp' }),
       '周五上冰奶油拿铁，28 元，仅限堂食。');

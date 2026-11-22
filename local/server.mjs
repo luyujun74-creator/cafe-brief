@@ -174,7 +174,7 @@ http.createServer(async (req, res) => {
     res.writeHead(302, { Location: '/' + new URL(req.url, origin).search });
     return res.end();
   }
-  const name = path === '/' ? 'launch/index.html' : path === '/legacy-workbench' ? 'index.html' : path.slice(1);
+  const name = path === '/' ? 'launch/index.html' : path === '/legacy-workbench' ? 'legacy-workbench.html' : path.slice(1);
   const file = resolve(root, name);
   const type = mime[extname(file)];
   if (!file.startsWith(root + '/') || !type) return reply(res, 404, { error: '页面不存在。' });
