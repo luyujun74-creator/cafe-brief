@@ -100,10 +100,12 @@ export function channelCopy(draft, channel) {
 
 export function applyFacts(draft, values) {
   const facts = { ...draft.facts, ...values };
+  const recordHistory = entry => ({ ...entry, history: [...entry.history, draft.facts] });
   const edits = Object.fromEntries(Object.entries(draft.edits).map(([id, edit]) => [
-    id, { ...edit, pending: true, history: [...edit.history, draft.facts] },
+    id, { ...recordHistory(edit), pending: true },
   ]));
-  return { ...draft, facts, edits, revision: draft.revision + 1 };
+  const copyBuffers = Object.fromEntries(Object.entries(draft.copyBuffers ?? {}).map(([id, buffer]) => [id, recordHistory(buffer)]));
+  return { ...draft, facts, edits, copyBuffers, revision: draft.revision + 1 };
 }
 
 export function editCopy(draft, id, text) {

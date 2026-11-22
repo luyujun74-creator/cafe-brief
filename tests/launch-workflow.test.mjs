@@ -41,6 +41,14 @@ test('第二次改动及撤销仍保留独立手改和待核对来源', () => {
   assert.deepEqual(staleEvidence(second.edits.social, second.edits.social.text, facts), []);
 });
 
+test('未保存的渠道文案随共享事实改动保存校验历史', () => {
+  const copy = '星期五来店，售价28.50。';
+  const editing = { ...draft, copyBuffers: { social: { text: copy, history: [] } } };
+  const next = applyFacts(applyFacts(editing, { price: 2600 }), { day: '周六' });
+  assert.equal(next.copyBuffers.social.text, copy);
+  assert.deepEqual(staleEvidence(next.copyBuffers.social, copy, next.facts), ['¥28.50', '周五']);
+});
+
 test('明确标价和星期别名也能定位旧事实', () => {
   const edit = { history: [facts] };
   assert.deepEqual(staleEvidence(edit, '售价28.5，星期五来店。', { ...facts, price: 2600, day: '周六' }), ['¥28.50', '周五']);
