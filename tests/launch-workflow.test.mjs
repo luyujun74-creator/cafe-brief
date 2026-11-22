@@ -70,3 +70,28 @@ test('模型只提供改动候选，保留原日期并用整数分计算差价',
   assert.deepEqual(modelChange({ priceYuan: 20 }, '售价不改成 20 元', facts), {});
   assert.deepEqual(modelChange({ priceYuan: 32 }, '就卖 29.9 元一杯', facts), {});
 });
+
+test('画布可解析改名和开放外卖，手稿仍会拦截旧品名和范围', () => {
+  const patched = ruleChange('商品名改成冰美式，开放外卖', facts);
+  assert.deepEqual(patched, { name: '冰美式', scope: 'all' });
+  const hand = editCopy(draft, 'poster', '仅限堂食，欢迎尝试桂花冷萃。', '桂花冷萃');
+  const next = applyFacts(hand, patched);
+  assert.equal(next.edits.poster.title, '桂花冷萃');
+  assert.deepEqual(staleEvidence(next.edits.poster, next.edits.poster.text, next.facts), ['桂花冷萃', '仅限堂食']);
+});
+
+test('渠道成稿只接受通过检查的独立文案，模板与手改标题均可落地', async () => {
+  const { validatedCopy, artworkTitle, channelLead } = await import('../docs/launch/workflow.mjs');
+  const copy = validatedCopy({
+    menu: '点单时见，给自己留一杯清凉。',
+    poster: '点单时见，给自己留一杯清凉。',
+    banner: '买一送一，每杯 9 元！',
+    social: '周六有货，外卖已开通。',
+  }, facts);
+  assert.deepEqual(copy, { menu: '点单时见，给自己留一杯清凉。' });
+  const model = { ...draft, generated: copy };
+  assert.equal(channelLead(model, channels(facts)[0]), copy.menu);
+  const edited = editCopy(model, 'menu', '坐下来喝一杯', '今日桂花有风');
+  assert.equal(artworkTitle(edited, channels(facts)[0]), '今日桂花有风');
+  assert.match(channelCopy(edited, channels(facts)[0]), /今日桂花有风\n\n坐下来喝一杯/);
+});

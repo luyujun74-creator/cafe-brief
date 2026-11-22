@@ -7,6 +7,7 @@
   <title>Café Brief · 新品上架 Agent</title>
   <link rel="icon" href="/assets/favicon.svg">
   <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/launch/studio-shell.css">
   <link rel="stylesheet" href="/launch/launch.css">
   <script type="module" src="/launch/app.mjs"></script>
 </head>
@@ -14,7 +15,7 @@
   <header class="top">
     <div class="top-inner">
       <div class="brand"><img src="/assets/favicon.svg" width="28" height="28" alt=""><strong>Café Brief</strong><span>工作室</span></div>
-      <nav class="top-links" aria-label="工作区"><a href="/" aria-current="page">新品上架</a><a href="/workbench">原包装工作台</a></nav>
+      <nav class="studio-navigation" aria-label="工作区"><a href="/" aria-current="page">新品上架</a><a href="/workbench">包装工作台</a></nav>
       <span class="model-status" id="modelStatus" role="status">本地工作区</span>
     </div>
   </header>
@@ -38,6 +39,7 @@
         <img id="heroSubject" class="hero-subject" alt="" width="552" height="732" hidden>
         <img id="photoPreview" alt="已上传的商品原片" hidden>
       </figure>
+      <button id="pauseLight" class="light-toggle" type="button" hidden>暂停光影</button>
       <form id="brief" class="intake-sheet stack" method="post" action="/api/launch/extract" aria-labelledby="intakeTitle">
         <div><h2 id="intakeTitle" tabindex="-1">把新品<br>带上菜单</h2><p>一张商品照，一段备注，一整套上新物料。</p></div>
         <div class="field upload">
@@ -61,7 +63,11 @@
             <legend>销售范围</legend><div class="row pick"><label><input type="radio" name="scope" value="store" required>仅限堂食</label><label><input type="radio" name="scope" value="all">堂食和外卖</label></div><small id="source-scope"></small>
           </fieldset>
         </div>
-        <div class="row"><button type="submit" class="primary">确认并制作物料</button><button type="button" id="back">返回素材</button></div>
+        <div class="fact-grid">
+          <div class="field"><label for="brand">店名（选填）</label><input id="brand" maxlength="24" autocomplete="organization"></div>
+          <div class="field"><label for="selling">已确认卖点（选填）</label><input id="selling" maxlength="48" placeholder="例如 桂花香与轻盈茶感"></div>
+        </div>
+        <div class="row"><button type="submit" class="primary">确认并制作物料</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回素材</button></div>
       </form>
       <aside class="panel stack brief-side"><img id="factPhoto" alt="待核对的商品照片" hidden><h3>原始备注</h3><blockquote id="originalNote"></blockquote><h3>计划制作</h3><p id="factPlan"></p></aside>
     </section>
@@ -69,7 +75,11 @@
     <section id="review" aria-labelledby="reviewTitle" hidden>
       <div class="review-heading">
         <div><h2 id="reviewTitle" tabindex="-1">创作画布</h2><p id="planSource"></p></div>
-        <a href="#actions" class="jump">修改 / 打包</a>
+        <div class="row review-tools">
+          <button id="editProduct" type="button">编辑商品</button>
+          <label for="replacement" class="file-button">更换照片</label><input id="replacement" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
+          <a href="#actions" class="jump">修改 / 打包</a>
+        </div>
       </div>
       <div class="layout review-layout">
         <div class="gallery">
@@ -108,8 +118,8 @@
             <div class="row"><button id="apply" type="button" class="primary">应用到整套</button><button id="dismiss" type="button">取消</button></div>
           </div>
           <div id="conflict" class="conflict" hidden></div>
-          <p id="reviewNotice" class="notice" role="status"></p>
-          <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button></div>
+
+          <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button><button id="writeCopy" type="button">重写默认文案</button></div>
           </div>
           <section id="sourceDetail" class="stack" aria-labelledby="sourceTitle" hidden>
             <div class="row action-heading"><h3 id="sourceTitle" tabindex="-1">商品原片</h3><button id="closeSource" type="button">回全景</button></div>
@@ -120,16 +130,33 @@
               <div class="row action-heading"><h3 id="detailTitle" tabindex="-1"></h3><button id="closeDetail" type="button">回全景</button></div>
               <p id="detailFacts"></p>
               <p id="detailConflict" class="conflict" role="status" hidden></p>
-              <div class="field"><label for="copy">渠道文案</label><textarea id="copy" name="copy" rows="5" maxlength="280" required></textarea></div>
+              <div class="field"><label for="artTitle">画面标题</label><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">标题会写入预览和导出的 JPG。</small></div>
+              <div class="field"><label for="copy">发布文案</label><textarea id="copy" name="copy" rows="5" maxlength="280" required></textarea></div>
               <p id="detailStatus" class="notice" role="status"></p>
-              <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">推荐文案</button><button id="downloadOne" type="button">下载本件 ZIP</button></div>
+              <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button></div>
             </form>
           </section>
+          <p id="reviewNotice" class="notice" role="status"></p>
         </aside>
       </div>
     </section>
   </main>
 
+  <dialog id="productDialog" aria-labelledby="productTitle">
+    <form id="productForm" class="stack">
+      <h2 id="productTitle">编辑商品</h2>
+      <div class="fact-grid">
+        <div class="field"><label for="editName">商品名</label><input id="editName" maxlength="36" required autofocus></div>
+        <div class="field"><label for="editPrice">售价（元）</label><input id="editPrice" inputmode="decimal" pattern="[0-9]{1,4}(\.[0-9]{1,2})?" required></div>
+        <div class="field"><label for="editDay">上新时间</label><input id="editDay" maxlength="32" required></div>
+        <div class="field"><label for="editScope">销售范围</label><select id="editScope"><option value="store">仅限堂食</option><option value="all">堂食和外卖</option></select></div>
+        <div class="field"><label for="editBrand">店名（选填）</label><input id="editBrand" maxlength="24"></div>
+        <div class="field"><label for="editSelling">已确认卖点（选填）</label><input id="editSelling" maxlength="48"></div>
+      </div>
+      <p id="productError" class="notice" role="status"></p>
+      <div class="row"><button class="primary" type="submit">保存商品资料</button><button id="cancelProduct" type="button">取消</button></div>
+    </form>
+  </dialog>
   <dialog id="newDraft" aria-labelledby="newDraftTitle">
     <form method="dialog" class="stack">
       <h2 id="newDraftTitle">开始下一款？</h2><p>此浏览器只保留一份工作草稿。需要留档时，请先下载当前版本。</p>

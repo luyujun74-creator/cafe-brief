@@ -36,8 +36,8 @@ const canonicalDay = date => date.normalize('NFKC').replace(/\s/g, '')
 const dateMentions = text => [...new Map([...text.matchAll(new RegExp(dayPattern, 'g'))]
   .map(match => [canonicalDay(match[0]), match[0]])).values()];
 const scopeMentions = text => [
-  /仅限堂食|仅堂食|只做堂食|不做外卖|堂食限定/.test(text) ? 'store' : '',
-  /堂食(?:和|及|与|、)外卖|堂食外卖(?:都可|均可)|外卖也上/.test(text) ? 'all' : '',
+  /仅限堂食|仅堂食|只做堂食|不做外卖|堂食限定|关闭外卖/.test(text) ? 'store' : '',
+  /堂食(?:和|及|与|、)外卖|堂食外卖(?:都可|均可)|外卖也上|开放外卖|开通外卖|可(?:以)?点外卖/.test(text) ? 'all' : '',
 ].filter(Boolean);
 
 export function noteAmbiguities(note) {
@@ -62,7 +62,12 @@ export function ruleChange(command, facts) {
   for (const clause of clauses) {
     const price = clause.match(new RegExp('^(?:把)?(?:售价|价格)?\\s*(?:改成|改为|调至|调到|改到)\\s*(?:[¥￥]\\s*' + amount + '\\s*(?:元)?|' + amount + '\\s*元)$'));
     const day = clause.match(new RegExp('^(?:日期|上新时间)?\\s*(?:改成|改为|改到|延到|推迟到)?\\s*(' + dayPattern + ')(?:\\s*(?:再上|上新|上市|再上架|上架))?$'));
-    if (price && values.price === undefined && validPrice(cents(price[1] ?? price[2]))) values.price = cents(price[1] ?? price[2]);
+    const name = bounded(clause.match(/^(?:把)?(?:商品名|品名)\s*(?:改成|改为|换成)\s*(.+)$/)?.[1], 36);
+    const scope = /^(?:销售范围\s*(?:改成|改为)\s*)?(仅限堂食|关闭外卖|不做外卖|开放外卖|开通外卖|堂食和外卖)$/.test(clause)
+      ? scopeMentions(clause)[0] : '';
+    if (name && values.name === undefined && !/[？?]/.test(name)) values.name = name;
+    else if (scope && values.scope === undefined) values.scope = scope;
+    else if (price && values.price === undefined && validPrice(cents(price[1] ?? price[2]))) values.price = cents(price[1] ?? price[2]);
     else if (day && values.day === undefined) values.day = day[1];
     else return null;
   }
@@ -72,6 +77,10 @@ export function ruleChange(command, facts) {
 export function modelChange(value, command, facts) {
   if (!value || /不要|不改|不变|不确定|待定|如果|假如|要不要|能不能|是否|[？?]/.test(command)) return {};
   const patch = {};
+  const name = bounded(value.name, 36);
+  if (name && command.includes(name) && /商品名|品名|改名/.test(command) && name !== facts.name) patch.name = name;
+  const scopes = scopeMentions(command);
+  if (scopes.length === 1 && scopes[0] === value.scope && value.scope !== facts.scope) patch.scope = value.scope;
   const suggestedDay = bounded(value.day, 32);
   const dates = dateMentions(command);
   if (suggestedDay && command.includes(suggestedDay) && dates.length <= 1) {
@@ -93,9 +102,36 @@ export function modelChange(value, command, facts) {
   return patch;
 }
 
+export const normalizeBrand = (value = {}) => ({
+  brand: bounded(value.brand, 24),
+  selling: bounded(value.selling, 48),
+});
+
+export function validatedCopy(value, facts) {
+  const seen = new Set();
+  return Object.fromEntries(channels(facts).flatMap(({ id }) => {
+    const text = bounded(value?.[id], 120);
+    const fingerprint = text.replace(/[\p{P}\s]/gu, '');
+    if (fingerprint.length < 8 || seen.has(fingerprint) || /[¥￥%％\d]|元[起整]|折扣|优惠|免费|买.+送|无糖|零糖|低卡|养生|功效|仅限|外卖|堂食|限量/.test(text) ||
+        dateMentions(text).length || text.includes(facts.name)) return [];
+    seen.add(fingerprint);
+    return [[id, text]];
+  }));
+}
+
+export function channelLead(draft, channel) {
+  return draft.generated?.[channel.id] ?? channel.leads[draft.choices?.[channel.id]] ?? channel.leads[0];
+}
+
+export function artworkTitle(draft, channel) {
+  return draft.edits[channel.id]?.title || draft.facts.name;
+}
+
 export function channelCopy(draft, channel) {
-  const lead = channel.leads[draft.choices[channel.id]] ?? channel.leads[0];
-  return `${factLine(draft.facts)}\n\n${draft.edits[channel.id]?.text ?? lead}`;
+  const title = artworkTitle(draft, channel);
+  const brand = normalizeBrand(draft.branding);
+  return [factLine(draft.facts), brand.brand, brand.selling, title !== draft.facts.name ? title : '',
+    draft.edits[channel.id]?.text ?? channelLead(draft, channel)].filter(Boolean).join('\n\n');
 }
 
 export function applyFacts(draft, values) {
@@ -105,13 +141,14 @@ export function applyFacts(draft, values) {
     id, { ...recordHistory(edit), pending: true },
   ]));
   const copyBuffers = Object.fromEntries(Object.entries(draft.copyBuffers ?? {}).map(([id, buffer]) => [id, recordHistory(buffer)]));
-  return { ...draft, facts, edits, copyBuffers, revision: draft.revision + 1 };
+  const generated = facts.name === draft.facts.name ? draft.generated : {};
+  return { ...draft, facts, generated, edits, copyBuffers, revision: draft.revision + 1 };
 }
 
-export function editCopy(draft, id, text) {
+export function editCopy(draft, id, text, title = '') {
   return {
     ...draft, revision: draft.revision + 1,
-    edits: { ...draft.edits, [id]: { text, history: [], pending: false } },
+    edits: { ...draft.edits, [id]: { text, title, history: [], pending: false } },
   };
 }
 
@@ -122,11 +159,16 @@ export function staleEvidence(edit, text, current) {
   const currentDay = canonicalDay(current.day);
   for (const previous of edit.history) {
     if (previous.price !== current.price && amounts.includes(previous.price)) stale.add(money(previous.price));
+    if (previous.name && previous.name !== current.name && text.replaceAll(current.name, '').includes(previous.name)) stale.add(previous.name);
+    if (previous.scope !== current.scope && scopeMentions(text).includes(previous.scope)) stale.add(scopeLabel(previous.scope));
     const previousDay = canonicalDay(previous.day);
     if (previousDay === currentDay) continue;
     const found = new RegExp('^' + dayPattern + '$').test(previous.day)
       ? days.includes(previousDay) : text.replaceAll(current.day, '').includes(previous.day);
     if (found) stale.add(previous.day);
+  }
+  if (current.scope && scopeMentions(text).some(scope => scope !== current.scope)) {
+    stale.add(scopeLabel(current.scope === 'all' ? 'store' : 'all'));
   }
   return [...stale];
 }

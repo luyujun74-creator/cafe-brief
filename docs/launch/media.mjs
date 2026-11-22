@@ -1,4 +1,4 @@
-import { channelCopy, money, scopeLabel } from './workflow.mjs';
+import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs';
 import { makeZip } from './zip.mjs';
 
 const getBlob = (canvas, quality) => new Promise((resolve, reject) => {
@@ -42,21 +42,40 @@ export async function loadPhoto(blob, target) {
 }
 
 const artThemes = {
-  menu: ['#f2eadd', '#2b433c'],
-  poster: ['#f1e6d6', '#814538'],
-  banner: ['#e5ecdf', '#2c493c'],
-  social: ['#e8ede4', '#3a5148'],
-  delivery: ['#edf1ec', '#344a40'],
+  menu: { paper: '#faf1df', ink: '#342a20', accent: '#805534', tab: '菜单上新', ratio: .47 },
+  poster: { paper: '#37291f', ink: '#fff0d7', accent: '#e5bc82', tab: '柜台菜单', ratio: .56 },
+  banner: { paper: '#23372e', ink: '#f8efd7', accent: '#c9dba6', tab: '门店上新', ratio: .52 },
+  social: { paper: '#f2e4d2', ink: '#382923', accent: '#8b5238', tab: '本店上新', ratio: .48 },
+  delivery: { paper: '#e8eddf', ink: '#28382d', accent: '#4c654a', tab: '外卖上新', ratio: .50 },
 };
 const font = '"PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
 
-function photoBox(ctx, picture, x, y, w, h) {
-  ctx.fillStyle = '#e4ddd1';
+function photoBox(ctx, picture, x, y, w, h, unit) {
+  const blur = unit * .029;
+  ctx.save();
+  ctx.fillStyle = '#514338';
+  ctx.shadowColor = '#16110e65';
+  ctx.shadowBlur = unit * .023;
+  ctx.shadowOffsetY = unit * .012;
   ctx.fillRect(x, y, w, h);
+  ctx.shadowColor = 'transparent';
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  const cover = Math.max((w + blur * 4) / picture.naturalWidth, (h + blur * 4) / picture.naturalHeight);
+  ctx.filter = `blur(${blur * ctx.getTransform().a}px) saturate(.76) brightness(.63)`;
+  ctx.drawImage(picture, x + (w - picture.naturalWidth * cover) / 2, y + (h - picture.naturalHeight * cover) / 2,
+    picture.naturalWidth * cover, picture.naturalHeight * cover);
+  ctx.filter = 'none';
+
   const scale = Math.min(w / picture.naturalWidth, h / picture.naturalHeight);
   const width = picture.naturalWidth * scale;
   const height = picture.naturalHeight * scale;
+  ctx.shadowColor = '#18120d80';
+  ctx.shadowBlur = unit * .018;
   ctx.drawImage(picture, x + (w - width) / 2, y + (h - height) / 2, width, height);
+  ctx.restore();
 }
 
 function nameLines(ctx, value, width) {
@@ -73,70 +92,89 @@ function nameLines(ctx, value, width) {
   return lines;
 }
 
-export function art(channel, facts, picture, preview = false) {
+export function art(channel, facts, picture, { thumbnail = false, branding, title = facts.name } = {}) {
   const canvas = document.createElement('canvas');
   const { width: w, height: h } = channel;
-  const scale = preview ? Math.min(440 / w, 430 / h) : 1;
+  const scale = thumbnail ? Math.min(440 / w, 430 / h) : 1;
   canvas.width = Math.round(w * scale);
   canvas.height = Math.round(h * scale);
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', [title, facts.name === title ? '' : facts.name, money(facts.price), facts.day, scopeLabel(facts.scope)].filter(Boolean).join(' · '));
   const ctx = canvas.getContext('2d', { alpha: false });
   ctx.scale(canvas.width / w, canvas.height / h);
-  const [paper, accent] = artThemes[channel.id];
-  ctx.fillStyle = paper;
-  ctx.fillRect(0, 0, w, h);
-  const p = Math.round(Math.min(w, h) * .063);
+  const theme = artThemes[channel.id];
+  const { brand, selling } = normalizeBrand(branding);
+  const unit = Math.min(w, h);
+  const p = Math.round(unit * .059);
   const side = w / h > 1.15;
-  const photoWidth = side ? Math.round(w * .49) : w - p * 2;
-  const photoHeight = side ? h - p * 2 : Math.round(h * (channel.id === 'poster' ? .56 : .48));
-  photoBox(ctx, picture, side ? w - p - photoWidth : p, p, photoWidth, photoHeight);
+  const photoWidth = side ? Math.round(w * theme.ratio) : w - p * 2;
+  const photoHeight = side ? h - p * 2 : Math.round(h * theme.ratio);
+  const wash = ctx.createLinearGradient(0, 0, w, h);
+  wash.addColorStop(0, theme.paper);
+  wash.addColorStop(1, theme.ink);
+  ctx.fillStyle = theme.paper;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = .10;
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = 1;
+  photoBox(ctx, picture, side ? w - p - photoWidth : p, p, photoWidth, photoHeight, unit);
 
   const max = side ? w - photoWidth - p * 3 : w - p * 2;
-  const unit = Math.min(w, h);
-  const captionSize = Math.round(unit * .029);
-  const priceSize = Math.round(unit * .066);
-  const detailSize = Math.round(unit * .034);
   const contentStart = side ? p : 2 * p + photoHeight;
   const available = h - p - contentStart;
-  const fixedHeight = unit * .050 + priceSize * 1.45 + detailSize * 2.7;
-  let size = Math.floor(unit * .083);
+  const captionSize = Math.round(unit * .028);
+  const priceSize = Math.round(unit * .065);
+  const detailSize = Math.round(unit * .032);
+  const secondary = [facts.name !== title ? facts.name : '', selling].filter(Boolean);
+  const fixedHeight = unit * .062 + priceSize * 1.34 + detailSize * (2.6 + secondary.length * 1.24);
+  let size = Math.floor(unit * .086);
   let lines;
   while (true) {
     ctx.font = `750 ${size}px ${font}`;
-    lines = nameLines(ctx, facts.name, max);
-    if (fixedHeight + size * (lines.length * 1.17 + .26) <= available || size <= 18) break;
+    lines = nameLines(ctx, title, max);
+    if (fixedHeight + size * (lines.length * 1.10 + .40) <= available || size <= 18) break;
     size -= 2;
   }
-  const blockHeight = fixedHeight + size * (lines.length * 1.17 + .26);
-  let y = contentStart + Math.max(0, (available - blockHeight) * .42);
+  const blockHeight = fixedHeight + size * (lines.length * 1.10 + .40);
+  let y = contentStart + Math.max(0, (available - blockHeight) * .53);
   ctx.textBaseline = 'top';
-  ctx.fillStyle = accent;
+  ctx.fillStyle = theme.accent;
   ctx.font = `650 ${captionSize}px ${font}`;
-  ctx.fillText(channel.id === 'delivery' ? '外 卖 上 新' : '本 期 上 新', p, y, max);
-  ctx.fillRect(p, y - unit * .018, unit * .09, Math.max(2, unit * .005));
-  y += unit * .050;
+  ctx.fillText(brand || theme.tab, p, y, max);
+  ctx.fillRect(p, y - unit * .015, unit * .09, Math.max(2, unit * .004));
+  y += unit * .062;
+  ctx.fillStyle = theme.ink;
   ctx.font = `750 ${size}px ${font}`;
   for (const line of lines) {
     ctx.fillText(line, p, y, max);
-    y += size * 1.17;
+    y += size * 1.10;
   }
-  y += size * .26;
+  y += size * .40;
+  ctx.font = `550 ${detailSize}px ${font}`;
+  for (const line of secondary) {
+    ctx.fillText(line, p, y, max);
+    y += detailSize * 1.24;
+  }
+  ctx.fillStyle = theme.accent;
   ctx.font = `700 ${priceSize}px ${font}`;
   ctx.fillText(money(facts.price), p, y, max);
-  y += priceSize * 1.45;
+  y += priceSize * 1.34;
+  ctx.fillStyle = theme.ink;
   ctx.font = `550 ${detailSize}px ${font}`;
   ctx.fillText(facts.day, p, y, max);
-  ctx.fillText(scopeLabel(facts.scope), p, y + detailSize * 1.45, max);
+  ctx.fillText(scopeLabel(facts.scope), p, y + detailSize * 1.32, max);
   return canvas;
 }
 
 export async function packageAssets(draft, selected, photo) {
-  const encode = value => new TextEncoder().encode(value);
+  const encode = value => new TextEncoder().encode(value.trimEnd().replace(/\r\n?|\n/g, '\n') + '\n');
   const files = [];
   for (const c of selected) {
-    const jpeg = await getBlob(art(c, draft.facts, photo), .91);
+    const jpeg = await getBlob(art(c, draft.facts, photo, { branding: draft.branding, title: artworkTitle(draft, c) }), .91);
     files.push(
       { name: `${c.title}/成品.jpg`, data: new Uint8Array(await jpeg.arrayBuffer()) },
-      { name: `${c.title}/渠道文案.txt`, data: encode(channelCopy(draft, c) + '\r\n') },
+      { name: `${c.title}/渠道文案.txt`, data: encode(channelCopy(draft, c)) },
     );
   }
   const { facts, revision, productId } = draft;
@@ -147,6 +185,6 @@ export async function packageAssets(draft, selected, photo) {
     ...(facts.scope === 'store' ? ['跳过外卖主图：仅限堂食。'] : []),
     '图片使用商户商品照本地排版。', '请按实际发布平台要求核对成品。',
   ];
-  files.push({ name: '物料清单.txt', data: encode(manifest.join('\r\n') + '\r\n') });
+  files.push({ name: '物料清单.txt', data: encode(manifest.join('\n')) });
   return makeZip(files);
 }

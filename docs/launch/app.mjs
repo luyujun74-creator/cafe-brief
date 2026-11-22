@@ -1,5 +1,5 @@
 import {
-  applyFacts, channels, editCopy, factLine, fields, money, normalizeFacts,
+  applyFacts, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   ruleChange, ruleFacts, scopeLabel, staleEvidence,
 } from './workflow.mjs';
 import { art, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs';
@@ -22,6 +22,8 @@ let saveNumber = 0;
 let lastSavedToken = null;
 let saveQueue = Promise.resolve();
 let anotherTabSaved = false;
+const mobile = matchMedia('(max-width: 760px)');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const stages = ['intake', 'facts', 'review'];
 const choices = id => channels(draft.facts).find(channel => channel.id === id);
 const sourceItem = { id: 'source', title: '商品原片' };
@@ -75,7 +77,10 @@ function show(stage, focus = true) {
   }
   if (stage === 'intake' && document.readyState === 'complete' && !draft.photo) loadHero();
   if (stage === 'facts') renderFacts();
-  if (stage === 'review') renderReview();
+  if (stage === 'review') {
+    if (!activeChannel && mobile.matches) activeChannel = channels(draft.facts)[0].id;
+    renderReview();
+  }
   if (focus) {
     notice('');
     $(stage + 'Title').focus({ preventScroll: true });
@@ -168,6 +173,7 @@ async function acceptPhoto(file, note) {
   persist({ ...draft, photo, photoName: file.name, note: note ?? draft.note });
   $('note').value = draft.note;
   await showPhoto();
+  if (draft.stage === 'facts') $('factPhoto').src = $('photoPreview').src;
   notice('');
 }
 
@@ -177,11 +183,49 @@ $('photo').addEventListener('change', async event => {
   event.target.value = '';
   if (file) await submitPhoto(file);
 });
-$('intake').addEventListener('dragover', event => event.preventDefault());
-$('intake').addEventListener('drop', event => {
+const carriesFiles = event => event.dataTransfer.types.includes('Files');
+window.addEventListener('dragover', event => {
+  if (!carriesFiles(event)) return;
   event.preventDefault();
+  event.dataTransfer.dropEffect = busy || $('newDraft').open || $('productDialog').open ? 'none' : 'copy';
+});
+window.addEventListener('drop', event => {
+  if (!carriesFiles(event)) return;
+  event.preventDefault();
+  if (busy || $('newDraft').open || $('productDialog').open) return;
   const file = event.dataTransfer.files[0];
-  if (file) void submitPhoto(file);
+  if (!file) return;
+  if (draft.stage === 'review') void replacePhoto(file);
+  else void submitPhoto(file);
+});
+
+$('replacement').addEventListener('change', event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (file) void replacePhoto(file);
+});
+async function replacePhoto(file) {
+  await withProgress('正在读取新照片', async () => {
+    await acceptPhoto(file);
+    persist({ ...draft, revision: draft.revision + 1 });
+    renderReview();
+    notice('照片已替换，整套物料已更新。');
+  });
+}
+
+const lighting = $('pauseLight');
+function showLightControl() { lighting.hidden = reducedMotion.matches; }
+showLightControl();
+reducedMotion.addEventListener('change', showLightControl);
+lighting.addEventListener('click', () => {
+  const paused = $('intake').toggleAttribute('data-light-paused');
+  lighting.textContent = paused ? '播放光影' : '暂停光影';
+});
+$('intake').addEventListener('pointermove', event => {
+  if (reducedMotion.matches || $('intake').hasAttribute('data-light-paused') || event.pointerType !== 'mouse') return;
+  const bounds = $('intake').getBoundingClientRect();
+  $('intake').style.setProperty('--light-x', ((event.clientX - bounds.left) / bounds.width - .5) * 36 + 'px');
+  $('intake').style.setProperty('--light-y', ((event.clientY - bounds.top) / bounds.height - .5) * 22 + 'px');
 });
 $('note').addEventListener('input', () => persist({ ...draft, note: $('note').value }));
 $('sample').addEventListener('click', () => withProgress('正在读取示例照片', async () => {
@@ -233,6 +277,9 @@ function renderFacts() {
   $('factPhoto').src = $('photoPreview').src;
   $('factPhoto').hidden = !draft.photo;
   const { facts, extractionSource, extractionReason } = draft;
+  const branding = normalizeBrand(draft.branding);
+  $('brand').value = branding.brand;
+  $('selling').value = branding.selling;
   $('name').value = facts.name;
   $('price').value = facts.price == null ? '' : money(facts.price).slice(1);
   $('day').value = facts.day;
@@ -263,7 +310,7 @@ function readFacts() {
 
 $('factsForm').addEventListener('input', event => {
   event.target.setCustomValidity?.('');
-  persist({ ...draft, facts: readFacts() });
+  persist({ ...draft, facts: readFacts(), branding: normalizeBrand({ brand: $('brand').value, selling: $('selling').value }) });
 });
 $('factsForm').addEventListener('change', updateFactHints);
 
@@ -278,22 +325,65 @@ $('factsForm').addEventListener('submit', async event => {
     field.reportValidity();
     return;
   }
-  const result = await withProgress(`正在规划 ${channels(facts).length} 个渠道并准备文案`, async () => {
-    try {
-      return await request('compose', { facts, note: draft.note });
-    } catch {
-      return { choices: {}, source: 'rules', reason: '本机模型接口暂不可用' };
-    }
-  }, event.submitter);
+  const branding = normalizeBrand({ brand: $('brand').value, selling: $('selling').value });
+  const result = event.submitter?.id === 'template' ? { generated: {}, reason: '已选择模板' }
+    : await withProgress(`正在用 Gemma 撰写 ${channels(facts).length} 个渠道的文案`, () => compose(facts, branding), event.submitter);
   if (!result) return;
   persist({
-    ...draft, stage: 'review', facts, choices: result.choices, copySource: result.source,
+    ...draft, stage: 'review', facts, branding, generated: result.generated, choices: {},
     copyReason: result.reason, revision: draft.revision + 1,
   });
   show('review');
   canvas.fit();
   canvas.reveal();
 });
+
+async function compose(facts, branding) {
+  try {
+    return await request('compose', { facts, branding });
+  } catch {
+    return { generated: {}, reason: '本机模型接口暂不可用' };
+  }
+}
+
+$('editProduct').addEventListener('click', () => {
+  const { name, price, day, scope } = draft.facts;
+  const { brand, selling } = normalizeBrand(draft.branding);
+  $('editName').value = name;
+  $('editPrice').value = money(price).slice(1);
+  $('editDay').value = day;
+  $('editScope').value = scope;
+  $('editBrand').value = brand;
+  $('editSelling').value = selling;
+  $('productError').textContent = '';
+  $('productDialog').showModal();
+});
+$('cancelProduct').addEventListener('click', () => $('productDialog').close());
+$('productForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const facts = normalizeFacts({ name: $('editName').value, price: Math.round(Number($('editPrice').value) * 100),
+    day: $('editDay').value, scope: $('editScope').value });
+  if (Object.values(facts).some(value => !value)) {
+    $('productError').textContent = '请填写商品名、上新时间和 0.01 至 9999.99 元范围内的售价。';
+    return;
+  }
+  const branding = normalizeBrand({ brand: $('editBrand').value, selling: $('editSelling').value });
+  const patch = Object.fromEntries(Object.entries(facts).filter(([id, value]) => value !== draft.facts[id]));
+  const brandChanged = Object.entries(branding).some(([id, value]) => value !== normalizeBrand(draft.branding)[id]);
+  $('productDialog').close();
+  if (!Object.keys(patch).length && !brandChanged) return;
+  const updated = Object.keys(patch).length ? applyFacts(draft, patch) : { ...draft, revision: draft.revision + 1 };
+  persist({ ...updated, branding, proposal: null, previousFacts: Object.keys(patch).length ? draft.facts : draft.previousFacts,
+    generated: brandChanged ? {} : updated.generated, copyReason: brandChanged || patch.name ? '商品资料已更新' : draft.copyReason });
+  renderReview();
+  notice('商品资料已更新，可继续编辑当前作品。');
+});
+$('writeCopy').addEventListener('click', () => withProgress('正在用 Gemma 撰写各渠道的默认文案', async () => {
+  const result = await compose(draft.facts, draft.branding);
+  persist({ ...draft, generated: result.generated, choices: {}, copyReason: result.reason, revision: draft.revision + 1 });
+  renderReview();
+  notice(Object.keys(result.generated).length ? '已更新各渠道的默认文案。' : '当前使用本地模板。');
+}));
 
 function sourceImage() {
   const photo = document.createElement('img');
@@ -306,6 +396,8 @@ function sourceImage() {
 function renderReview() {
   const fixtures = channels(draft.facts);
   const items = canvasItems();
+  if (activeChannel && !items.some(item => item.id === activeChannel)) activeChannel = fixtures[0].id;
+  if (lastChannel && !items.some(item => item.id === lastChannel)) lastChannel = activeChannel;
   const tiles = items.map(channel => {
     const tile = document.createElement('article');
     tile.className = 'tile';
@@ -358,9 +450,12 @@ function renderReview() {
   $('factSummary').replaceChildren(...list);
   $('excluded').hidden = draft.facts.scope !== 'store';
   $('version').textContent = 'v' + draft.revision;
-  $('planSource').textContent = `${fixtures.length} 个渠道 · ` + (draft.copySource === 'model'
-    ? 'Gemma 推荐文案，照片在本机排版'
-    : `本地模板文案${draft.copyReason ? '（' + draft.copyReason + '）' : ''}，照片在本机排版`);
+  const modelCount = fixtures.filter(c => draft.generated?.[c.id]).length;
+  $('planSource').textContent = `${fixtures.length} 个渠道 · ` + (modelCount === fixtures.length
+    ? 'Gemma 撰写默认文案'
+    : modelCount ? `${modelCount} 份 Gemma 文案 · ${fixtures.length - modelCount} 份本地模板`
+    : `本地模板${draft.copyReason ? '（' + draft.copyReason + '）' : ''}`);
+  if (activeChannel) renderDetail();
   $('command').value = draft.command;
   renderDiff();
   syncReview();
@@ -389,9 +484,9 @@ function renderImpact() {
     if (!channel) continue;
     const effective = { ...draft.facts, ...proposal?.patch };
     tile.dataset.impact = String(Boolean(proposal));
-    tile.querySelector('.tile-art').replaceChildren(art(channel, effective, $('photoPreview'), true));
+    tile.querySelector('.tile-art').replaceChildren(art(channel, effective, $('photoPreview'), artOptions(channel, effective, true)));
     tile.querySelector('small').textContent = proposal
-      ? proposal.patch.price !== undefined ? money(draft.facts.price) + ' → ' + money(effective.price) : draft.facts.day + ' → ' + effective.day
+      ? Object.entries(proposal.patch).map(([id, value]) => valueText(id, draft.facts[id]) + ' → ' + valueText(id, value)).join(' · ')
       : draft.edits[channel.id]?.pending ? '待核对手改文案' : channel.width + ' × ' + channel.height;
   }
 }
@@ -407,9 +502,11 @@ function renderDiff() {
   }));
   const affected = channels(draft.facts);
   const count = affected.filter(c => draft.edits[c.id] || c.id in buffers()).length;
-  $('diffImpact').textContent = `更新 ${affected.map(c => c.title).join('、')}的图片和共享信息。` +
-    (count ? `${count} 件手改文案将保留原文并标记待核对。` : '') +
-    (draft.proposal.source === 'model' ? ' 候选由 Gemma 解析。' : ' 候选由本地规则解析。');
+  const deliveryImpact = draft.proposal.patch.scope
+    ? (draft.proposal.patch.scope === 'all' ? '新增外卖主图。' : '移除外卖主图。') : '';
+  $('diffImpact').textContent = `更新 ${affected.length} 件物料。` + deliveryImpact +
+    (count ? `${count} 件手改文案待核对。` : '') +
+    (draft.proposal.source === 'model' ? ' Gemma 已解析。' : ' 本地规则已解析。');
 }
 
 $('command').addEventListener('input', () => {
@@ -441,7 +538,7 @@ $('change').addEventListener('submit', async event => {
   persist({ ...draft, proposal: { patch: result, source } });
   renderDiff();
   syncReview();
-  $('apply').focus();
+  $('apply').focus({ preventScroll: true });
 });
 $('dismiss').addEventListener('click', () => {
   persist({ ...draft, proposal: null });
@@ -507,14 +604,16 @@ function renderDetail() {
   const effective = { ...draft.facts, ...draft.proposal?.patch };
   $('detailTitle').textContent = channel.title;
   $('detailFacts').textContent = factLine(effective) + (draft.proposal ? ' · 变更预览' : '');
-  $('previewSlot').replaceChildren(art(channel, effective, $('photoPreview')));
-  $('copy').value = buffers()[activeChannel]?.text ?? edit?.text ?? channel.leads[draft.choices[activeChannel] ?? 0];
+  $('artTitle').value = buffers()[activeChannel]?.title ?? edit?.title ?? '';
+  $('artTitle').readOnly = Boolean(draft.proposal);
+  renderFocusedArt(channel, effective);
+  $('copy').value = buffers()[activeChannel]?.text ?? edit?.text ?? channelLead(draft, channel);
   $('copy').readOnly = Boolean(draft.proposal);
   $('editCopy').querySelector('[type="submit"]').disabled = Boolean(draft.proposal);
   $('resetCopy').disabled = Boolean(draft.proposal);
-  const evidence = detailEvidence($('copy').value);
+  const evidence = detailEvidence([$('artTitle').value, $('copy').value].join('\n'));
   $('detailConflict').hidden = !edit?.pending && !evidence.length;
-  $('detailConflict').textContent = evidence.length ? `原稿含旧事实 ${evidence.join('、')}，修改后保存。` : '商品信息已更新，请核对手改文案。';
+  $('detailConflict').textContent = evidence.length ? `原稿与当前资料冲突 ${evidence.join('、')}，修改后保存。` : '商品信息已更新，请核对手改文案。';
   $('detailStatus').textContent = draft.proposal ? '先回全景应用或取消变更，之后可编辑文案。' : '';
   $('downloadOne').disabled = detailExportBlocked();
 }
@@ -541,7 +640,6 @@ function showOverview(returnFocus = false) {
   const previous = activeChannel;
   activeChannel = null;
   renderMode();
-  canvas.fit();
   if (returnFocus) $('canvasOverview').focus({ preventScroll: true });
   else if (previous && document.activeElement?.closest('#detail')) $('canvasOverview').focus({ preventScroll: true });
 }
@@ -563,7 +661,7 @@ $('closeSource').addEventListener('click', () => showOverview(true));
 $('previousChannel').addEventListener('click', () => switchChannel(-1));
 $('nextChannel').addEventListener('click', () => switchChannel(1));
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && activeChannel && !$('newDraft').open && !busy) showOverview(true);
+  if (event.key === 'Escape' && activeChannel && !$('newDraft').open && !$('productDialog').open && !busy) showOverview(true);
 });
 let swipe;
 $('focusView').addEventListener('touchstart', event => {
@@ -578,11 +676,26 @@ $('focusView').addEventListener('touchend', event => {
   if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.5) switchChannel(dx < 0 ? 1 : -1);
 }, { passive: true });
 $('focusView').addEventListener('touchcancel', () => { swipe = null; });
-$('copy').addEventListener('input', () => {
+function artOptions(channel, facts, thumbnail = false) {
+  return { thumbnail, branding: draft.branding, title: draft.edits[channel.id]?.title || facts.name };
+}
+function renderFocusedArt(channel, facts) {
+  $('previewSlot').replaceChildren(art(channel, facts, $('photoPreview'), {
+    ...artOptions(channel, facts), title: $('artTitle').value.trim() || facts.name,
+  }));
+}
+
+function bufferCopy() {
   if (!activeChannel || draft.proposal) return;
-  const buffer = { history: buffers()[activeChannel]?.history ?? [], text: $('copy').value };
+  const buffer = { history: buffers()[activeChannel]?.history ?? [], text: $('copy').value, title: $('artTitle').value };
   persist({ ...draft, copyBuffers: { ...buffers(), [activeChannel]: buffer } });
   syncReview();
+}
+$('copy').addEventListener('input', bufferCopy);
+$('artTitle').addEventListener('input', () => {
+  bufferCopy();
+  const channel = choices(activeChannel);
+  if (channel) renderFocusedArt(channel, draft.facts);
 });
 function withoutBuffer() {
   const copyBuffers = { ...buffers() };
@@ -593,15 +706,15 @@ $('editCopy').addEventListener('submit', event => {
   event.preventDefault();
   if (busy || !activeChannel || draft.proposal) return;
   const text = $('copy').value.trim();
-  const evidence = detailEvidence(text);
+  const title = $('artTitle').value.trim();
+  const evidence = detailEvidence([title, text].join('\n'));
   if (!text || evidence.length) {
-    $('detailStatus').textContent = text ? `仍有旧事实 ${evidence.join('、')}，请改成当前信息。` : '请填写渠道文案。';
+    $('detailStatus').textContent = text ? `还需核对 ${evidence.join('、')}，请改成当前信息。` : '请填写渠道文案。';
     $('copy').focus();
     return;
   }
-  persist({ ...editCopy(draft, activeChannel, text), copyBuffers: withoutBuffer() });
+  persist({ ...editCopy(draft, activeChannel, text, title), copyBuffers: withoutBuffer() });
   renderReview();
-  renderDetail();
   $('detailStatus').textContent = '已保存当前渠道文案。';
 });
 $('resetCopy').addEventListener('click', () => {
@@ -610,8 +723,7 @@ $('resetCopy').addEventListener('click', () => {
   delete edits[activeChannel];
   persist({ ...draft, edits, copyBuffers: withoutBuffer(), revision: draft.revision + 1 });
   renderReview();
-  renderDetail();
-  $('detailStatus').textContent = '已恢复推荐文案。';
+  $('detailStatus').textContent = '已恢复默认标题和文案。';
 });
 
 async function download(selected, feedback = notice) {
