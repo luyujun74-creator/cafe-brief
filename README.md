@@ -57,3 +57,13 @@ CB_PREVIEW_PORT=8775 node tests/local-server.cjs
 node --test tests/*.test.mjs
 NODE_PATH=<含 playwright-core 的 node_modules> CB_BROWSER_CDP=<所选浏览器的 CDP 地址> node tests/browser.test.cjs [截图目录]
 ```
+
+## 本机新品上架 Agent
+
+依赖 Node.js 20.3+。如需本机 AI，启动已安装的 Ollama 并准备 `gemma3:latest`。原包装工作台仍可通过新版顶栏打开。
+
+```bash
+node local/server.mjs
+```
+
+打开 http://127.0.0.1:8776/。仅在本机回环地址提供服务，可通过 `CB_LAUNCH_PORT` 改端口。浏览器将缩小后的商品照和备注发给本机 Gemma，候选信息需要商户确认。Gemma 按渠道选择文案开头，共享商品信息与图片由浏览器按确认后的值排版。模型断开时可用规则或手填继续。支持一句话改价改期、核对保留的手改文案，以及整套或单渠道 ZIP。草稿含照片，保存在当前浏览器和地址下。新建下一款会替换草稿，已下载的 ZIP 可用于留档。
