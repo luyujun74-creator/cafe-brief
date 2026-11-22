@@ -24,6 +24,8 @@ let saveQueue = Promise.resolve();
 let anotherTabSaved = false;
 const stages = ['intake', 'facts', 'review'];
 const choices = id => channels(draft.facts).find(channel => channel.id === id);
+const sourceItem = { id: 'source', title: '商品原片' };
+const canvasItems = () => [sourceItem, ...channels(draft.facts)];
 const pending = () => channels(draft.facts).filter(c => draft.edits[c.id]?.pending);
 const buffers = () => draft.copyBuffers ?? {};
 const allReady = () => Boolean(draft.photo && draft.revision > 0 && Object.values(draft.facts).every(Boolean));
@@ -228,6 +230,8 @@ $('back').addEventListener('click', () => {
 });
 
 function renderFacts() {
+  $('factPhoto').src = $('photoPreview').src;
+  $('factPhoto').hidden = !draft.photo;
   const { facts, extractionSource, extractionReason } = draft;
   $('name').value = facts.name;
   $('price').value = facts.price == null ? '' : money(facts.price).slice(1);
@@ -288,11 +292,21 @@ $('factsForm').addEventListener('submit', async event => {
   });
   show('review');
   canvas.fit();
+  canvas.reveal();
 });
+
+function sourceImage() {
+  const photo = document.createElement('img');
+  photo.src = $('photoPreview').src;
+  photo.alt = '商品原片';
+  photo.draggable = false;
+  return photo;
+}
 
 function renderReview() {
   const fixtures = channels(draft.facts);
-  const tiles = fixtures.map(channel => {
+  const items = canvasItems();
+  const tiles = items.map(channel => {
     const tile = document.createElement('article');
     tile.className = 'tile';
     tile.dataset.channel = channel.id;
@@ -309,6 +323,10 @@ function renderReview() {
     const title = document.createElement('strong');
     title.textContent = channel.title;
     const meta = document.createElement('small');
+    if (channel.id === 'source') {
+      artwork.append(sourceImage());
+      meta.textContent = '上传照片';
+    }
     const move = document.createElement('button');
     move.type = 'button';
     move.className = 'move';
@@ -321,7 +339,7 @@ function renderReview() {
   });
   lastPreview = Symbol('new tiles');
   canvas.render(tiles, draft.positions);
-  $('channelList').replaceChildren(...fixtures.map(channel => {
+  $('channelList').replaceChildren(...items.map(channel => {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.focus = channel.id;
@@ -368,6 +386,7 @@ function renderImpact() {
   lastPreview = proposal;
   for (const tile of $('board').children) {
     const channel = choices(tile.dataset.channel);
+    if (!channel) continue;
     const effective = { ...draft.facts, ...proposal?.patch };
     tile.dataset.impact = String(Boolean(proposal));
     tile.querySelector('.tile-art').replaceChildren(art(channel, effective, $('photoPreview'), true));
@@ -465,7 +484,8 @@ function renderMode() {
   $('canvasHelp').hidden = focused;
   $('focusView').hidden = !focused;
   $('focusCount').hidden = !focused;
-  $('detail').hidden = !focused;
+  $('detail').hidden = !focused || activeChannel === 'source';
+  $('sourceDetail').hidden = activeChannel !== 'source';
   $('projectActions').hidden = focused;
   $('canvasOverview').setAttribute('aria-pressed', String(!focused));
   $('canvasFocus').setAttribute('aria-pressed', String(focused));
@@ -475,6 +495,13 @@ function renderMode() {
 }
 
 function renderDetail() {
+  const list = canvasItems();
+  $('focusCount').textContent = `${list.findIndex(item => item.id === activeChannel) + 1} / ${list.length}`;
+  if (activeChannel === 'source') {
+    $('previewSlot').replaceChildren(sourceImage());
+    $('sourceFilename').textContent = draft.photoName ?? '商品照片';
+    return;
+  }
   const channel = choices(activeChannel);
   const edit = draft.edits[activeChannel];
   const effective = { ...draft.facts, ...draft.proposal?.patch };
@@ -490,12 +517,10 @@ function renderDetail() {
   $('detailConflict').textContent = evidence.length ? `原稿含旧事实 ${evidence.join('、')}，修改后保存。` : '商品信息已更新，请核对手改文案。';
   $('detailStatus').textContent = draft.proposal ? '先回全景应用或取消变更，之后可编辑文案。' : '';
   $('downloadOne').disabled = detailExportBlocked();
-  const list = channels(draft.facts);
-  $('focusCount').textContent = `${list.indexOf(channel) + 1} / ${list.length}`;
 }
 
 function openChannel(id, focus = true) {
-  if (busy || !choices(id)) return;
+  if (busy || (id !== 'source' && !choices(id))) return;
   lastChannel = activeChannel = id;
   renderMode();
   renderDetail();
@@ -509,7 +534,7 @@ function openChannel(id, focus = true) {
     const visible = strip.getBoundingClientRect();
     strip.scrollLeft += Math.min(0, tile.left - visible.left) || Math.max(0, tile.right - visible.right);
   }
-  if (focus) $('detailTitle').focus({ preventScroll: true });
+  if (focus) $(id === 'source' ? 'sourceTitle' : 'detailTitle').focus({ preventScroll: true });
 }
 
 function showOverview(returnFocus = false) {
@@ -522,7 +547,7 @@ function showOverview(returnFocus = false) {
 }
 
 function switchChannel(direction) {
-  const list = channels(draft.facts);
+  const list = canvasItems();
   const index = list.findIndex(c => c.id === activeChannel);
   const next = index < 0 ? (direction > 0 ? 0 : list.length - 1) : (index + direction + list.length) % list.length;
   openChannel(list[next].id, false);
@@ -534,6 +559,7 @@ $('review').querySelector('.jump').addEventListener('click', () => {
 });
 $('canvasFocus').addEventListener('click', () => openChannel(lastChannel ?? channels(draft.facts)[0].id, false));
 $('closeDetail').addEventListener('click', () => showOverview(true));
+$('closeSource').addEventListener('click', () => showOverview(true));
 $('previousChannel').addEventListener('click', () => switchChannel(-1));
 $('nextChannel').addEventListener('click', () => switchChannel(1));
 document.addEventListener('keydown', event => {

@@ -85,6 +85,7 @@ button:disabled { cursor: default; opacity: .53; }
 .intake-buttons .primary span { margin-inline-start: 6px; }
 .fact-grid { display: grid; gap: 13px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .facts-layout { min-height: 300px; }
+#factPhoto { display: block; width: 100%; height: min(210px, 32svh); object-fit: contain; background: #171c18; border-radius: 6px; }
 fieldset { border: 0; padding: 0; margin: 0; }
 legend { padding: 0 0 3px; }
 .pick label { display: flex; align-items: center; min-height: 38px; gap: 5px; }
@@ -121,7 +122,10 @@ blockquote { white-space: pre-wrap; padding: 10px 12px; border-inline-start: 2px
 .tile-art { display: grid; place-items: center; flex: 1; min-height: 0; padding: 0; width: 100%; border: 0; border-radius: 0; overflow: hidden; background: #cac3af; }
 .tile-art:hover:not(:disabled) { background: #d8cfb9; }
 .tile-art:focus-visible { outline-offset: -4px; }
-.tile-art canvas { width: 100%; height: 100%; min-height: 0; object-fit: contain; display: block; }
+.tile-art :is(canvas, img) { width: 100%; height: 100%; min-height: 0; object-fit: contain; display: block; }
+.tile[data-channel="source"] { background: #d9c6a4; }
+.tile[data-channel="source"] .tile-art { background: #312e25; }
+.tile-art img { pointer-events: none; user-select: none; }
 .tile-caption { flex: 0 0 42px; display: flex; align-items: center; gap: 8px; padding-inline: 10px 3px; overflow: hidden; white-space: nowrap; }
 .tile-caption strong { font-size: 17px; }
 .tile-caption small { color: #555a49; font-size: 12px; }
@@ -133,7 +137,7 @@ blockquote { white-space: pre-wrap; padding: 10px 12px; border-inline-start: 2px
 .tile[data-conflict="true"] .tile-caption small { color: #884420; font-weight: 700; }
 .focus-view { display: grid; place-items: center; background-color: #202721; touch-action: pan-y; }
 #previewSlot { position: absolute; inset: 14px; }
-#previewSlot canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+#previewSlot :is(canvas, img) { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
 .channel-bar { justify-content: stretch; border-top: 1px solid #424d42; }
 .channel-list { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: thin; flex: 1; }
 .channel-list button { flex: 0 0 auto; white-space: nowrap; }

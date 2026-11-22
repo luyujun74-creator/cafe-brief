@@ -63,7 +63,7 @@
         </div>
         <div class="row"><button type="submit" class="primary">确认并制作物料</button><button type="button" id="back">返回素材</button></div>
       </form>
-      <aside class="panel stack brief-side"><h3>原始备注</h3><blockquote id="originalNote"></blockquote><h3>计划制作</h3><p id="factPlan"></p></aside>
+      <aside class="panel stack brief-side"><img id="factPhoto" alt="待核对的商品照片" hidden><h3>原始备注</h3><blockquote id="originalNote"></blockquote><h3>计划制作</h3><p id="factPlan"></p></aside>
     </section>
 
     <section id="review" aria-labelledby="reviewTitle" hidden>
@@ -91,7 +91,7 @@
             <div class="channel-list" id="channelList" aria-label="按渠道切换"></div>
             <button id="nextChannel" class="channel-arrow" type="button" aria-label="下一件">›</button>
           </div>
-          <p id="canvasHelp" class="canvas-help">拖动空白平移 · 滚轮缩放 · 拖动卡片手柄排列 · 点击物料聚焦</p>
+          <p id="canvasHelp" class="canvas-help">拖动空白平移 · 滚轮缩放 · 拖动卡片排列 · 点击聚焦</p>
           <p id="excluded" class="skip-note" hidden>仅限堂食 · 跳过外卖主图</p>
         </div>
         <aside class="panel actions" id="actions">
@@ -111,6 +111,10 @@
           <p id="reviewNotice" class="notice" role="status"></p>
           <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button></div>
           </div>
+          <section id="sourceDetail" class="stack" aria-labelledby="sourceTitle" hidden>
+            <div class="row action-heading"><h3 id="sourceTitle" tabindex="-1">商品原片</h3><button id="closeSource" type="button">回全景</button></div>
+            <p id="sourceFilename"></p>
+          </section>
           <section id="detail" aria-labelledby="detailTitle" hidden>
             <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
               <div class="row action-heading"><h3 id="detailTitle" tabindex="-1"></h3><button id="closeDetail" type="button">回全景</button></div>

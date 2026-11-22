@@ -1,6 +1,7 @@
 import { arrangementBounds, fitCamera, placeCard, zoomCamera } from './canvas-geometry.mjs';
 
 const placements = {
+  source: { x: 394, y: 456, width: 271, height: 235 },
   menu: { x: 0, y: 100, width: 336, height: 280 },
   poster: { x: 365, y: 0, width: 273, height: 424 },
   banner: { x: 670, y: 22, width: 432, height: 221 },
@@ -16,6 +17,8 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
   let minimum = .2;
   let activeItem;
   let gesture;
+  let lastDrag = -Infinity;
+  let revealAnimations = [];
   let cards = [];
   const position = (item, point) => {
     item.tile.style.setProperty('--x', point.x + 'px');
@@ -58,26 +61,34 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
     item.tile.dataset.raised = 'true';
   }
 
+  function stopReveal() {
+    for (const animation of revealAnimations) animation.cancel();
+    revealAnimations = [];
+  }
+
   viewport.addEventListener('pointerdown', event => {
     if (event.button !== 0 || gesture) return;
-    const handle = event.target.closest('[data-move]');
-    const item = handle && cards.find(card => card.id === handle.dataset.move);
-    if (!item && event.target.closest('button')) return;
+    stopReveal();
+    lastDrag = -Infinity;
+    const tile = event.target.closest('.tile');
+    const item = tile && cards.find(card => card.tile === tile);
     if (item) raise(item);
     gesture = {
       id: event.pointerId, start: { x: event.clientX, y: event.clientY }, item,
       origin: item ? { x: item.x, y: item.y } : { x: camera.x, y: camera.y },
       moved: false,
     };
-    viewport.setPointerCapture(event.pointerId);
-    viewport.dataset.dragging = item ? 'card' : 'pan';
   });
 
   viewport.addEventListener('pointermove', event => {
     if (!gesture || gesture.id !== event.pointerId) return;
     const movement = { x: event.clientX - gesture.start.x, y: event.clientY - gesture.start.y };
-    if (!gesture.moved && Math.hypot(movement.x, movement.y) < 3) return;
-    gesture.moved = true;
+    if (!gesture.moved) {
+      if (Math.hypot(movement.x, movement.y) < 5) return;
+      gesture.moved = true;
+      viewport.setPointerCapture(event.pointerId);
+      viewport.dataset.dragging = gesture.item ? 'card' : 'pan';
+    }
     fitted = false;
     if (gesture.item) {
       position(gesture.item, placeCard(gesture.origin, movement, camera.scale));
@@ -90,15 +101,31 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
   const endGesture = event => {
     if (!gesture || gesture.id !== event.pointerId) return;
     const { item, moved } = gesture;
-    if (item && moved) onMove(item.id, { x: item.x, y: item.y });
+    if (moved) {
+      lastDrag = performance.now();
+      if (item) onMove(item.id, { x: item.x, y: item.y });
+    }
     gesture = undefined;
     delete viewport.dataset.dragging;
   };
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) viewport.addEventListener(type, endGesture);
+  for (const type of ['pointerup', 'pointercancel']) viewport.addEventListener(type, endGesture);
+  viewport.addEventListener('lostpointercapture', event => {
+    if (event.target === viewport) endGesture(event);
+  });
+  viewport.addEventListener('pointerleave', event => {
+    if (gesture && !gesture.moved) endGesture(event);
+  });
+  viewport.addEventListener('click', event => {
+    if (event.detail && performance.now() - lastDrag < 350) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
 
   viewport.addEventListener('wheel', event => {
     if (event.ctrlKey || event.metaKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
     event.preventDefault();
+    stopReveal();
     const rect = viewport.getBoundingClientRect();
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
     zoom(Math.exp(-Math.max(-120, Math.min(120, delta)) * .003), { x: event.clientX - rect.left, y: event.clientY - rect.top });
@@ -107,9 +134,10 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
   viewport.addEventListener('keydown', event => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const direction = directions[event.key];
-    const handle = event.target.closest('[data-move]');
-    const item = handle && cards.find(card => card.id === handle.dataset.move);
+    const tile = event.target.closest('.tile');
+    const item = tile && cards.find(card => card.tile === tile);
     if (event.target !== viewport && !item) return;
+    stopReveal();
     if (direction) {
       event.preventDefault();
       const step = event.shiftKey ? 60 : 20;
@@ -150,6 +178,7 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
 
   return {
     render(tiles, positions) {
+      stopReveal();
       activeItem = undefined;
       cards = tiles.map(tile => {
         const id = tile.dataset.channel;
@@ -163,6 +192,14 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
       world.replaceChildren(...tiles);
       if (fitted) fit();
       else paint();
+    },
+    reveal() {
+      if (!matchMedia('(prefers-reduced-motion: no-preference)').matches) return;
+      const origin = cards.find(card => card.id === 'source');
+      revealAnimations = cards.filter(card => card !== origin).map((card, index) => card.tile.animate([
+        { opacity: 0, translate: `${(origin.x - card.x) * .34}px ${(origin.y - card.y) * .34}px` },
+        { opacity: 1, translate: '0 0' },
+      ], { duration: 420, delay: 65 + index * 70, fill: 'backwards', easing: 'cubic-bezier(.22, 1, .36, 1)' }));
     },
     fit,
   };
