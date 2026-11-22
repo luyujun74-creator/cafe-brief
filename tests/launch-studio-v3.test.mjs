@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { works, duplicateWork, deleteWork, restoreWork } from '../docs/launch/works.mjs';
-import { validatedCopy } from '../docs/launch/workflow.mjs';
+import { applyFacts, channelCopy, channels, editCopy, validatedCopy } from '../docs/launch/workflow.mjs';
 
 const draft = { facts: {name:'冰拿铁',price:2800,day:'周五',scope:'store'}, revision:1, edits:{poster:{title:'门店手改'}}, positions:{poster:{x:61,y:80}}, layers:{poster:2} };
 test('副本独立，删除及撤销保留坐标、层级、文案与导出名称', () => {
@@ -45,4 +45,20 @@ test('文案只可引用商品名或已确认卖点中的配料', () => {
 test('朋友圈退回冒充顾客评价的文案', () => {
   const social = { title: '来北山坐坐', body: '最近发现了一家特别棒的咖啡馆，环境很舒服。' };
   assert.deepEqual(validatedCopy({ social }, draft.facts), {});
+});
+
+test('切换销售范围保留合规的生成稿和手改稿，只回退冲突渠道', () => {
+  const menu = { title: '小坐一会儿', body: '来店小坐，慢慢享受手边的咖啡。' };
+  const poster = { title: '把咖啡送到家', body: '给休息时间添一点期待。' };
+  const delivery = { title: '留一杯给自己', body: '让忙碌日常也有悠闲的片刻。' };
+  const original = editCopy({ ...draft, edits: {}, facts: { ...draft.facts, scope: 'all' }, generated: { menu, poster, delivery } },
+    'social', '我们在店里等你。', '街角见面');
+  const updated = applyFacts(original, { scope: 'store' });
+
+  assert.deepEqual(updated.generated, { menu });
+  assert.deepEqual(original.generated, { menu, poster, delivery });
+  assert.equal(updated.edits.social.title, '街角见面');
+  assert.equal(updated.edits.social.text, '我们在店里等你。');
+  assert.match(channelCopy(updated, channels(updated.facts).find(c => c.id === 'poster')), /新品来了，欢迎到店/);
+  assert.deepEqual(applyFacts(updated, { scope: 'all' }).generated, { menu });
 });

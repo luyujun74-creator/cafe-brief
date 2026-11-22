@@ -1,6 +1,6 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
-  ruleChange, ruleFacts, scopeLabel, staleEvidence,
+  generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
 } from './workflow.mjs';
 import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs';
 import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs';
@@ -104,7 +104,6 @@ function setBusy(value) {
     $(id).setAttribute('aria-busy', String(value));
   }
   syncReview();
-  if (activeChannel) $('downloadOne').disabled = value || detailExportBlocked();
 }
 
 async function withProgress(message, execute, button) {
@@ -499,7 +498,7 @@ function syncReview() {
   $('conflict').hidden = messages.length === 0;
   $('conflict').textContent = messages.join(' ');
   $('approve').disabled = busy || !allReady() || !currentWorks().length || messages.length > 0 || Boolean(draft.proposal);
-  if (activeChannel) { $('downloadOne').disabled = busy || detailExportBlocked(); $('downloadJpeg').disabled = $('downloadOne').disabled; }
+  syncDetailExports();
   $('undo').hidden = !draft.previousFacts;
   $('canvasRecovery').hidden = !draft.removedWorks?.length;
 }
@@ -508,12 +507,12 @@ function renderImpact() {
   const proposal = draft.proposal;
   if (lastPreview === proposal) return;
   lastPreview = proposal;
+  const preview = previewDraft();
   for (const tile of $('board').children) {
     const channel = choices(tile.dataset.channel);
     if (!channel) continue;
-    const effective = { ...draft.facts, ...proposal?.patch };
     tile.dataset.impact = String(Boolean(proposal));
-    tile.querySelector('.tile-art').replaceChildren(art(channel, effective, $('photoPreview'), artOptions(channel, effective, true)));
+    tile.querySelector('.tile-art').replaceChildren(art(channel, preview.facts, $('photoPreview'), artOptions(channel, preview, true)));
     tile.querySelector('small').textContent = proposal
       ? Object.entries(proposal.patch).map(([id, value]) => valueText(id, draft.facts[id]) + ' → ' + valueText(id, value)).join(' · ')
       : draft.edits[channel.id]?.pending ? '待核对手改文案' : channel.width + ' × ' + channel.height;
@@ -592,7 +591,14 @@ $('undo').addEventListener('click', () => {
 });
 
 function detailExportBlocked() {
-  return Boolean(draft.edits[activeChannel]?.pending || draft.proposal || activeChannel in buffers());
+  return busy || !choices(activeChannel) || !allReady() ||
+    Boolean(draft.edits[activeChannel]?.pending || draft.proposal || activeChannel in buffers());
+}
+
+function syncDetailExports() {
+  const blocked = detailExportBlocked();
+  $('downloadOne').disabled = blocked;
+  $('downloadJpeg').disabled = blocked;
 }
 
 function detailEvidence(text) {
@@ -624,6 +630,7 @@ function renderMode() {
 }
 
 function renderDetail() {
+  syncDetailExports();
   const list = canvasItems();
   $('focusCount').textContent = `${list.findIndex(item => item.id === activeChannel) + 1} / ${list.length}`;
   if (activeChannel === 'source') {
@@ -639,17 +646,17 @@ function renderDetail() {
   $('artCover').checked = Boolean(settings.cover);
   $('peekPhoto').setAttribute('aria-pressed','false');
   $('phonePreview').hidden = (channel.baseId ?? channel.id) !== 'delivery';
-  $('copySource').textContent = edit ? '已手改' : draft.generated?.[channel.baseId ?? channel.id] ? '本机 Gemma' : '本地模板';
+  const preview = previewDraft();
+  const generated = preview.generated?.[channel.baseId ?? channel.id];
+  $('copySource').textContent = edit ? '已手改' : generated ? '本机 Gemma' : '本地模板';
   for (const id of ['duplicate','raiseWork','lowerWork','deleteWork','artStyle','artScene','artCover']) $(id).disabled = Boolean(draft.proposal);
   $('duplicate').disabled ||= (draft.variants?.length ?? 0) >= 24;
-  const effective = { ...draft.facts, ...draft.proposal?.patch };
   $('detailTitle').textContent = channel.title;
-  $('detailFacts').textContent = factLine(effective) + (draft.proposal ? ' · 变更预览' : '');
-  const generated = effective.name === draft.facts.name && effective.scope === draft.facts.scope ? draft.generated?.[channel.baseId ?? channel.id] : null;
+  $('detailFacts').textContent = factLine(preview.facts) + (draft.proposal ? ' · 变更预览' : '');
   $('artTitle').value = buffers()[activeChannel]?.title ?? edit?.title ?? generated?.title ?? '';
   $('artTitle').readOnly = Boolean(draft.proposal);
-  renderFocusedArt(channel, effective);
-  $('copy').value = buffers()[activeChannel]?.text ?? edit?.text ?? channelLead(draft, channel);
+  renderFocusedArt(channel, preview);
+  $('copy').value = buffers()[activeChannel]?.text ?? edit?.text ?? channelLead(preview, channel);
   $('copy').readOnly = Boolean(draft.proposal);
   $('editCopy').querySelector('[type="submit"]').disabled = Boolean(draft.proposal);
   $('resetCopy').disabled = Boolean(draft.proposal);
@@ -657,7 +664,6 @@ function renderDetail() {
   $('detailConflict').hidden = !edit?.pending && !evidence.length;
   $('detailConflict').textContent = evidence.length ? `原稿与当前资料冲突 ${evidence.join('、')}，修改后保存。` : '商品信息已更新，请核对手改文案。';
   $('detailStatus').textContent = draft.proposal ? '先回全景应用或取消变更，之后可编辑文案。' : '';
-  $('downloadOne').disabled = detailExportBlocked();
 }
 
 function openChannel(id, focus = true) {
@@ -735,12 +741,18 @@ $('focusView').addEventListener('touchend', event => {
   if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.5) switchChannel(dx < 0 ? 1 : -1);
 }, { passive: true });
 $('focusView').addEventListener('touchcancel', () => { swipe = null; });
-function artOptions(channel, facts, thumbnail = false) {
-  return { thumbnail, branding: draft.branding, title: artworkTitle({ ...draft, facts, generated: draft.facts.name === facts.name && draft.facts.scope === facts.scope ? draft.generated : {} }, channel), settings: draft.artSettings?.[channel.id] };
+function previewDraft() {
+  if (!draft.proposal) return draft;
+  const facts = { ...draft.facts, ...draft.proposal.patch };
+  return { ...draft, facts, generated: generatedForFacts(draft, facts) };
 }
-function renderFocusedArt(channel, facts) {
-  const options = artOptions(channel, facts);
-  $('previewSlot').replaceChildren(art(channel, facts, $('photoPreview'), {
+
+function artOptions(channel, version = draft, thumbnail = false) {
+  return { thumbnail, branding: version.branding, title: artworkTitle(version, channel), settings: version.artSettings?.[channel.id] };
+}
+function renderFocusedArt(channel, version = draft) {
+  const options = artOptions(channel, version);
+  $('previewSlot').replaceChildren(art(channel, version.facts, $('photoPreview'), {
     ...options, title: $('artTitle').value.trim() || options.title,
   }));
 }
@@ -755,7 +767,7 @@ $('copy').addEventListener('input', bufferCopy);
 $('artTitle').addEventListener('input', () => {
   bufferCopy();
   const channel = choices(activeChannel);
-  if (channel) renderFocusedArt(channel, draft.facts);
+  if (channel) renderFocusedArt(channel);
 });
 function withoutBuffer() {
   const copyBuffers = { ...buffers() };
@@ -829,25 +841,30 @@ $('peekPhoto').addEventListener('click', () => {
   if (!choices(activeChannel)) return;
   const original = $('peekPhoto').getAttribute('aria-pressed') === 'true';
   $('peekPhoto').setAttribute('aria-pressed', String(!original));
-  if (original) renderFocusedArt(choices(activeChannel), { ...draft.facts, ...draft.proposal?.patch });
+  if (original) renderFocusedArt(choices(activeChannel), previewDraft());
   else $('previewSlot').replaceChildren(sourceImage());
 });
 $('phonePreview').addEventListener('click', () => {
   const work = choices(activeChannel);
   if ((work?.baseId ?? work?.id) !== 'delivery') return;
-  $('phoneArt').replaceChildren(art(work, draft.facts, $('photoPreview'), artOptions(work, draft.facts, true)));
+  $('phoneArt').replaceChildren(art(work, draft.facts, $('photoPreview'), artOptions(work, draft, true)));
   $('phoneProduct').textContent = draft.facts.name;
   $('phonePrice').textContent = money(draft.facts.price);
   $('phoneDialog').showModal();
 });
 $('downloadJpeg').addEventListener('click', async () => {
-  const work = selectedWork();
-  if (!work || detailExportBlocked()) return;
+  if (detailExportBlocked()) return;
+  const work = choices(activeChannel);
+  setBusy(true);
   try {
-    const image = art(work, draft.facts, $('photoPreview'), artOptions(work, draft.facts));
+    const image = art(work, draft.facts, $('photoPreview'), artOptions(work));
     saveBlob(await getBlob(image, .91), work.title + '.jpg');
     $('detailStatus').textContent = '已下载当前作品 JPG。';
-  } catch { $('detailStatus').textContent = '图片下载失败，请重试。'; }
+  } catch {
+    $('detailStatus').textContent = '图片下载失败，请重试。';
+  } finally {
+    setBusy(false);
+  }
 });
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -861,7 +878,6 @@ function saveBlob(blob, filename) {
 async function download(selected, feedback = notice) {
   if (busy || !allReady() || draft.proposal || selected.some(c => draft.edits[c.id]?.pending || c.id in buffers())) return;
   setBusy(true);
-  $('downloadOne').disabled = true;
   const snapshot = draft;
   try {
     feedback('正在打包当前版本。');
@@ -873,11 +889,13 @@ async function download(selected, feedback = notice) {
     feedback('打包失败，请重试。');
   } finally {
     setBusy(false);
-    syncReview();
   }
 }
 $('approve').addEventListener('click', () => download(currentWorks()));
-$('downloadOne').addEventListener('click', () => download([choices(activeChannel)], text => { $('detailStatus').textContent = text; }));
+$('downloadOne').addEventListener('click', () => {
+  if (detailExportBlocked()) return;
+  void download([choices(activeChannel)], text => { $('detailStatus').textContent = text; });
+});
 for (const id of ['restart', 'newFromWorkspace']) $(id).addEventListener('click', () => {
   $('newDraft').returnValue = '';
   $('newDraft').showModal();

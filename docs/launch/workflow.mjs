@@ -150,6 +150,12 @@ export function channelCopy(draft, channel) {
     draft.edits[channel.id]?.text ?? channelLead(draft, channel)].filter(Boolean).join('\n\n');
 }
 
+export function generatedForFacts(draft, facts) {
+  if (facts.name !== draft.facts.name) return {};
+  if (facts.scope !== draft.facts.scope) return validatedCopy(draft.generated, facts, draft.branding);
+  return draft.generated ?? {};
+}
+
 export function applyFacts(draft, values) {
   const facts = { ...draft.facts, ...values };
   const recordHistory = entry => ({ ...entry, history: [...entry.history, draft.facts] });
@@ -157,8 +163,7 @@ export function applyFacts(draft, values) {
     id, { ...recordHistory(edit), pending: true },
   ]));
   const copyBuffers = Object.fromEntries(Object.entries(draft.copyBuffers ?? {}).map(([id, buffer]) => [id, recordHistory(buffer)]));
-  const sameProduct = facts.name === draft.facts.name && facts.scope === draft.facts.scope;
-  const generated = sameProduct ? draft.generated : {};
+  const generated = generatedForFacts(draft, facts);
   return { ...draft, facts, generated, edits, copyBuffers, revision: draft.revision + 1 };
 }
 
