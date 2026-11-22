@@ -60,7 +60,7 @@ NODE_PATH=<含 playwright-core 的 node_modules> CB_BROWSER_CDP=<所选浏览器
 
 ## 本机新品上架 Agent
 
-依赖 Node.js 20.3+。如需本机 AI，启动已安装的 Ollama 并准备 `gemma3:latest`。原包装工作台仍可通过新版顶栏打开。
+依赖 Node.js 20.3+。如需本机 AI，启动已安装的 Ollama 并准备 `gemma3:latest`。本机原入口 `/workbench`、`/index.html` 与 `/launch/` 均进入统一工作室。旧包装界面可通过 `/legacy-workbench` 查看。
 
 ```bash
 node local/server.mjs

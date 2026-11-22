@@ -1,8 +1,9 @@
 import {
-  applyFacts, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
+  applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   ruleChange, ruleFacts, scopeLabel, staleEvidence,
 } from './workflow.mjs';
-import { art, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs';
 import { mountCanvas } from './canvas-board.mjs';
 import { loadDraft, openDraftStore, saveDraft } from './storage.mjs';
 
@@ -24,11 +25,12 @@ let saveQueue = Promise.resolve();
 let anotherTabSaved = false;
 const mobile = matchMedia('(max-width: 760px)');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const stages = ['intake', 'facts', 'review'];
-const choices = id => channels(draft.facts).find(channel => channel.id === id);
+const stages = ['intake', 'facts', 'review', 'workspace'];
+const currentWorks = () => works(draft);
+const choices = id => currentWorks().find(channel => channel.id === id);
 const sourceItem = { id: 'source', title: '商品原片' };
-const canvasItems = () => [sourceItem, ...channels(draft.facts)];
-const pending = () => channels(draft.facts).filter(c => draft.edits[c.id]?.pending);
+const canvasItems = () => [sourceItem, ...currentWorks()];
+const pending = () => currentWorks().filter(c => draft.edits[c.id]?.pending);
 const buffers = () => draft.copyBuffers ?? {};
 const allReady = () => Boolean(draft.photo && draft.revision > 0 && Object.values(draft.facts).every(Boolean));
 const valueText = (id, value) => id === 'price' ? money(value) : id === 'scope' ? scopeLabel(value) : value;
@@ -42,6 +44,7 @@ const canvas = mountCanvas({
   viewport: $('canvasViewport'),
   world: $('board'),
   controls: { out: $('zoomOut'), zoomIn: $('zoomIn'), fit: $('fitCanvas'), percent: $('zoomValue') },
+  onCamera(camera) { if (draft.stage === 'review') persist({ ...draft, camera }); },
   onMove(id, point) { persist({ ...draft, positions: { ...draft.positions, [id]: point } }); },
 });
 
@@ -72,13 +75,19 @@ function show(stage, focus = true) {
   document.body.dataset.stage = stage;
   for (const id of stages) {
     $(id).hidden = id !== stage;
-    if (id === stage) $('step-' + id).setAttribute('aria-current', 'step');
-    else $('step-' + id).removeAttribute('aria-current');
+    const step = $('step-' + id);
+    if (step) {
+      if (id === stage) step.setAttribute('aria-current', 'step');
+      else step.removeAttribute('aria-current');
+    }
   }
   if (stage === 'intake' && document.readyState === 'complete' && !draft.photo) loadHero();
+  if (stage === 'intake') $('resumeFirstDraft').hidden = !draft.photo;
   if (stage === 'facts') renderFacts();
+  if (stage === 'workspace') $('workspaceProduct').textContent = factLine(draft.facts);
   if (stage === 'review') {
-    if (!activeChannel && mobile.matches) activeChannel = channels(draft.facts)[0].id;
+    activeChannel = draft.focusedWork === undefined && mobile.matches ? currentWorks()[0]?.id ?? 'source' : draft.focusedWork;
+    lastChannel = draft.lastWork;
     renderReview();
   }
   if (focus) {
@@ -177,7 +186,10 @@ async function acceptPhoto(file, note) {
   notice('');
 }
 
-const submitPhoto = file => withProgress('正在读取商品照片', () => acceptPhoto(file));
+const submitPhoto = file => withProgress('正在读取商品照片', async () => {
+  await acceptPhoto(file);
+  if (draft.stage === 'intake') startFirstDraft(false);
+});
 $('photo').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
@@ -233,7 +245,13 @@ $('sample').addEventListener('click', () => withProgress('正在读取示例照�
     if (!response.ok) throw new Error('示例照片读取失败，请上传商品照片。');
     await acceptPhoto(new File([await response.blob()], '冰奶油拿铁示例.webp', { type: 'image/webp' }),
       '周五上冰奶油拿铁，28 元，仅限堂食。');
+    startFirstDraft(true);
 }));
+
+function startFirstDraft(sample) {
+  const facts = sample ? ruleFacts(draft.note) : normalizeFacts();
+  confirmFields({ facts, source: 'rules', reason: sample ? '已填入示例资料，可直接生成。' : '补齐下列四项，生成可发布的整套作品。' });
+}
 
 function confirmFields(result) {
   persist({
@@ -260,14 +278,11 @@ $('brief').addEventListener('submit', async event => {
   if (result) confirmFields(result);
 });
 
-$('manual').addEventListener('click', () => {
-  if (!draft.photo) {
-    $('photo').focus();
-    notice('先选择一张商品照片。');
-    return;
-  }
-  confirmFields({ facts: ruleFacts(draft.note), source: 'rules', reason: '已选择手动整理' });
+$('resumeFirstDraft').addEventListener('click', () => {
+  persist({ ...draft, stage: 'facts' });
+  show('facts');
 });
+
 $('back').addEventListener('click', () => {
   persist({ ...draft, stage: 'intake' });
   show('intake');
@@ -280,14 +295,19 @@ function renderFacts() {
   const branding = normalizeBrand(draft.branding);
   $('brand').value = branding.brand;
   $('selling').value = branding.selling;
+  $('offer').value = branding.offer;
   $('name').value = facts.name;
   $('price').value = facts.price == null ? '' : money(facts.price).slice(1);
   $('day').value = facts.day;
   for (const radio of $('factsForm').querySelectorAll('input[type=radio]')) radio.checked = facts.scope === radio.value;
+  const poster = channels(draft.facts).find(item => item.id === 'poster');
+  $('firstDraft').replaceChildren(art(poster, normalizeFacts(), $('photoPreview'), {
+    thumbnail: true, title: '今日新品', provisional: true, settings: { style: 'editorial', cover: true },
+  }));
   $('originalNote').textContent = draft.note || '未填写备注';
   $('extractionSource').textContent = extractionSource === 'model'
     ? 'Gemma 已整理备注。确认候选信息并补齐缺项。'
-    : `${extractionReason ?? '模型不可用'}，当前为本地规则整理，可直接手动核对。`;
+    : extractionReason ?? '请核对资料，再生成整套作品。';
   updateFactHints();
 }
 
@@ -310,7 +330,7 @@ function readFacts() {
 
 $('factsForm').addEventListener('input', event => {
   event.target.setCustomValidity?.('');
-  persist({ ...draft, facts: readFacts(), branding: normalizeBrand({ brand: $('brand').value, selling: $('selling').value }) });
+  persist({ ...draft, facts: readFacts(), branding: normalizeBrand({ brand: $('brand').value, selling: $('selling').value, offer: $('offer').value }) });
 });
 $('factsForm').addEventListener('change', updateFactHints);
 
@@ -325,7 +345,7 @@ $('factsForm').addEventListener('submit', async event => {
     field.reportValidity();
     return;
   }
-  const branding = normalizeBrand({ brand: $('brand').value, selling: $('selling').value });
+  const branding = normalizeBrand({ brand: $('brand').value, selling: $('selling').value, offer: $('offer').value });
   const result = event.submitter?.id === 'template' ? { generated: {}, reason: '已选择模板' }
     : await withProgress(`正在用 Gemma 撰写 ${channels(facts).length} 个渠道的文案`, () => compose(facts, branding), event.submitter);
   if (!result) return;
@@ -348,13 +368,14 @@ async function compose(facts, branding) {
 
 $('editProduct').addEventListener('click', () => {
   const { name, price, day, scope } = draft.facts;
-  const { brand, selling } = normalizeBrand(draft.branding);
+  const { brand, selling, offer } = normalizeBrand(draft.branding);
   $('editName').value = name;
   $('editPrice').value = money(price).slice(1);
   $('editDay').value = day;
   $('editScope').value = scope;
   $('editBrand').value = brand;
   $('editSelling').value = selling;
+  $('editOffer').value = offer;
   $('productError').textContent = '';
   $('productDialog').showModal();
 });
@@ -367,14 +388,14 @@ $('productForm').addEventListener('submit', event => {
     $('productError').textContent = '请填写商品名、上新时间和 0.01 至 9999.99 元范围内的售价。';
     return;
   }
-  const branding = normalizeBrand({ brand: $('editBrand').value, selling: $('editSelling').value });
+  const branding = normalizeBrand({ brand: $('editBrand').value, selling: $('editSelling').value, offer: $('editOffer').value });
   const patch = Object.fromEntries(Object.entries(facts).filter(([id, value]) => value !== draft.facts[id]));
   const brandChanged = Object.entries(branding).some(([id, value]) => value !== normalizeBrand(draft.branding)[id]);
   $('productDialog').close();
   if (!Object.keys(patch).length && !brandChanged) return;
   const updated = Object.keys(patch).length ? applyFacts(draft, patch) : { ...draft, revision: draft.revision + 1 };
   persist({ ...updated, branding, proposal: null, previousFacts: Object.keys(patch).length ? draft.facts : draft.previousFacts,
-    generated: brandChanged ? {} : updated.generated, copyReason: brandChanged || patch.name ? '商品资料已更新' : draft.copyReason });
+    generated: brandChanged ? {} : updated.generated, copyReason: brandChanged || patch.name || patch.scope ? '商品资料已更新' : draft.copyReason });
   renderReview();
   notice('商品资料已更新，可继续编辑当前作品。');
 });
@@ -394,14 +415,16 @@ function sourceImage() {
 }
 
 function renderReview() {
-  const fixtures = channels(draft.facts);
+  const fixtures = currentWorks();
   const items = canvasItems();
-  if (activeChannel && !items.some(item => item.id === activeChannel)) activeChannel = fixtures[0].id;
+  if (activeChannel && !items.some(item => item.id === activeChannel)) activeChannel = fixtures[0]?.id ?? 'source';
   if (lastChannel && !items.some(item => item.id === lastChannel)) lastChannel = activeChannel;
   const tiles = items.map(channel => {
     const tile = document.createElement('article');
     tile.className = 'tile';
     tile.dataset.channel = channel.id;
+    tile.dataset.base = channel.baseId ?? channel.id;
+    tile.style.setProperty('--level', draft.layers?.[channel.id] ?? 0);
     tile.dataset.conflict = String(Boolean(draft.edits[channel.id]?.pending));
 
     const artwork = document.createElement('button');
@@ -450,11 +473,16 @@ function renderReview() {
   $('factSummary').replaceChildren(...list);
   $('excluded').hidden = draft.facts.scope !== 'store';
   $('version').textContent = 'v' + draft.revision;
-  const modelCount = fixtures.filter(c => draft.generated?.[c.id]).length;
-  $('planSource').textContent = `${fixtures.length} 个渠道 · ` + (modelCount === fixtures.length
-    ? 'Gemma 撰写默认文案'
-    : modelCount ? `${modelCount} 份 Gemma 文案 · ${fixtures.length - modelCount} 份本地模板`
-    : `本地模板${draft.copyReason ? '（' + draft.copyReason + '）' : ''}`);
+  const editedCount = fixtures.filter(c => draft.edits[c.id]).length;
+  const modelCount = fixtures.filter(c => !draft.edits[c.id] && draft.generated?.[c.baseId ?? c.id]).length;
+  const templateCount = fixtures.length - editedCount - modelCount;
+  const summary = [
+    `${fixtures.length} 件作品`,
+    editedCount ? `${editedCount} 份手改文案` : '',
+    modelCount ? `${modelCount} 份 Gemma 文案` : '',
+    templateCount ? `${templateCount} 份本地模板` + (!modelCount && draft.copyReason ? '（' + draft.copyReason + '）' : '') : '',
+  ];
+  $('planSource').textContent = summary.filter(Boolean).join(' · ');
   if (activeChannel) renderDetail();
   $('command').value = draft.command;
   renderDiff();
@@ -463,16 +491,17 @@ function renderReview() {
 
 function syncReview() {
   const conflicts = pending();
-  const unsaved = channels(draft.facts).filter(c => c.id in buffers());
+  const unsaved = currentWorks().filter(c => c.id in buffers());
   const messages = [
     conflicts.length ? `待核对 ${conflicts.map(c => c.title).join('、')}的手改文案。` : '',
     unsaved.length ? `请保存 ${unsaved.map(c => c.title).join('、')}的文案再打包。` : '',
   ].filter(Boolean);
   $('conflict').hidden = messages.length === 0;
   $('conflict').textContent = messages.join(' ');
-  $('approve').disabled = busy || !allReady() || messages.length > 0 || Boolean(draft.proposal);
-  if (activeChannel) $('downloadOne').disabled = busy || detailExportBlocked();
+  $('approve').disabled = busy || !allReady() || !currentWorks().length || messages.length > 0 || Boolean(draft.proposal);
+  if (activeChannel) { $('downloadOne').disabled = busy || detailExportBlocked(); $('downloadJpeg').disabled = $('downloadOne').disabled; }
   $('undo').hidden = !draft.previousFacts;
+  $('canvasRecovery').hidden = !draft.removedWorks?.length;
 }
 
 function renderImpact() {
@@ -500,7 +529,7 @@ function renderDiff() {
     row.textContent = `${fields[id]} ${valueText(id, draft.facts[id])} → ${valueText(id, value)}`;
     return row;
   }));
-  const affected = channels(draft.facts);
+  const affected = currentWorks();
   const count = affected.filter(c => draft.edits[c.id] || c.id in buffers()).length;
   const deliveryImpact = draft.proposal.patch.scope
     ? (draft.proposal.patch.scope === 'all' ? '新增外卖主图。' : '移除外卖主图。') : '';
@@ -580,7 +609,10 @@ function renderMode() {
   $('canvasZoom').hidden = focused;
   $('canvasHelp').hidden = focused;
   $('focusView').hidden = !focused;
-  $('focusCount').hidden = !focused;
+  $('focusControls').hidden = !focused;
+  $('canvasMode').hidden = focused;
+  $('jumpToWork').hidden = !focused || activeChannel === 'source';
+  $('deleteWork').hidden = !focused || activeChannel === 'source';
   $('detail').hidden = !focused || activeChannel === 'source';
   $('sourceDetail').hidden = activeChannel !== 'source';
   $('projectActions').hidden = focused;
@@ -601,10 +633,20 @@ function renderDetail() {
   }
   const channel = choices(activeChannel);
   const edit = draft.edits[activeChannel];
+  const settings = draft.artSettings?.[activeChannel] ?? {};
+  $('artStyle').value = settings.style ?? '';
+  $('artScene').value = settings.scene ?? '';
+  $('artCover').checked = Boolean(settings.cover);
+  $('peekPhoto').setAttribute('aria-pressed','false');
+  $('phonePreview').hidden = (channel.baseId ?? channel.id) !== 'delivery';
+  $('copySource').textContent = edit ? '已手改' : draft.generated?.[channel.baseId ?? channel.id] ? '本机 Gemma' : '本地模板';
+  for (const id of ['duplicate','raiseWork','lowerWork','deleteWork','artStyle','artScene','artCover']) $(id).disabled = Boolean(draft.proposal);
+  $('duplicate').disabled ||= (draft.variants?.length ?? 0) >= 24;
   const effective = { ...draft.facts, ...draft.proposal?.patch };
   $('detailTitle').textContent = channel.title;
   $('detailFacts').textContent = factLine(effective) + (draft.proposal ? ' · 变更预览' : '');
-  $('artTitle').value = buffers()[activeChannel]?.title ?? edit?.title ?? '';
+  const generated = effective.name === draft.facts.name && effective.scope === draft.facts.scope ? draft.generated?.[channel.baseId ?? channel.id] : null;
+  $('artTitle').value = buffers()[activeChannel]?.title ?? edit?.title ?? generated?.title ?? '';
   $('artTitle').readOnly = Boolean(draft.proposal);
   renderFocusedArt(channel, effective);
   $('copy').value = buffers()[activeChannel]?.text ?? edit?.text ?? channelLead(draft, channel);
@@ -621,6 +663,7 @@ function renderDetail() {
 function openChannel(id, focus = true) {
   if (busy || (id !== 'source' && !choices(id))) return;
   lastChannel = activeChannel = id;
+  persist({ ...draft, focusedWork: id, lastWork: id });
   renderMode();
   renderDetail();
   const view = $('focusView');
@@ -639,7 +682,9 @@ function openChannel(id, focus = true) {
 function showOverview(returnFocus = false) {
   const previous = activeChannel;
   activeChannel = null;
+  persist({ ...draft, focusedWork: null });
   renderMode();
+  canvas.fitIfAutomatic();
   if (returnFocus) $('canvasOverview').focus({ preventScroll: true });
   else if (previous && document.activeElement?.closest('#detail')) $('canvasOverview').focus({ preventScroll: true });
 }
@@ -655,9 +700,23 @@ $('canvasOverview').addEventListener('click', () => showOverview());
 $('review').querySelector('.jump').addEventListener('click', () => {
   if (activeChannel) showOverview();
 });
-$('canvasFocus').addEventListener('click', () => openChannel(lastChannel ?? channels(draft.facts)[0].id, false));
-$('closeDetail').addEventListener('click', () => showOverview(true));
-$('closeSource').addEventListener('click', () => showOverview(true));
+$('canvasFocus').addEventListener('click', () => openChannel(lastChannel ?? currentWorks()[0]?.id ?? 'source', false));
+$('closeDetail').addEventListener('click', () => {
+  showOverview(true);
+  $('canvasOverview').scrollIntoView({ block: 'nearest' });
+});
+$('jumpToWork').addEventListener('click', () => {
+  $('detail').scrollIntoView({ block: 'start' });
+  $('detailTitle').focus({ preventScroll: true });
+});
+$('returnWorkspace').addEventListener('click', () => {
+  persist({ ...draft, stage: 'workspace', focusedWork: activeChannel ?? null });
+  show('workspace');
+});
+$('resumeCanvas').addEventListener('click', () => {
+  persist({ ...draft, stage: 'review' });
+  show('review');
+});
 $('previousChannel').addEventListener('click', () => switchChannel(-1));
 $('nextChannel').addEventListener('click', () => switchChannel(1));
 document.addEventListener('keydown', event => {
@@ -677,11 +736,12 @@ $('focusView').addEventListener('touchend', event => {
 }, { passive: true });
 $('focusView').addEventListener('touchcancel', () => { swipe = null; });
 function artOptions(channel, facts, thumbnail = false) {
-  return { thumbnail, branding: draft.branding, title: draft.edits[channel.id]?.title || facts.name };
+  return { thumbnail, branding: draft.branding, title: artworkTitle({ ...draft, facts, generated: draft.facts.name === facts.name && draft.facts.scope === facts.scope ? draft.generated : {} }, channel), settings: draft.artSettings?.[channel.id] };
 }
 function renderFocusedArt(channel, facts) {
+  const options = artOptions(channel, facts);
   $('previewSlot').replaceChildren(art(channel, facts, $('photoPreview'), {
-    ...artOptions(channel, facts), title: $('artTitle').value.trim() || facts.name,
+    ...options, title: $('artTitle').value.trim() || options.title,
   }));
 }
 
@@ -726,6 +786,78 @@ $('resetCopy').addEventListener('click', () => {
   $('detailStatus').textContent = '已恢复默认标题和文案。';
 });
 
+function selectedWork() {
+  return !busy && !draft.proposal && choices(activeChannel);
+}
+
+$('duplicate').addEventListener('click', () => {
+  if (!selectedWork() || (draft.variants?.length ?? 0) >= 24) return;
+  const [next, id] = duplicateWork(draft, activeChannel, canvas.positionOf(activeChannel));
+  persist(next);
+  openChannel(id, false);
+  renderReview();
+});
+$('deleteWork').addEventListener('click', () => {
+  if (!selectedWork()) return;
+  persist(deleteWork(draft, activeChannel));
+  showOverview();
+  renderReview();
+  $('undoDelete').focus();
+});
+$('undoDelete').addEventListener('click', () => {
+  const id = draft.removedWorks?.at(-1);
+  if (busy || !id) return;
+  persist(restoreWork(draft));
+  renderReview();
+  ($('channelList').querySelector(`[data-focus="${id}"]`) ?? $('canvasOverview')).focus({ preventScroll: true });
+  notice('作品已恢复。');
+});
+for (const [id, direction] of [['raiseWork', 1], ['lowerWork', -1]]) $(id).addEventListener('click', () => {
+  if (!selectedWork()) return;
+  const layers = draft.layers ?? {};
+  const edge = direction > 0 ? Math.max : Math.min;
+  persist({ ...draft, layers: { ...layers, [activeChannel]: edge(0, ...Object.values(layers)) + direction } });
+  renderReview();
+});
+for (const id of ['artStyle','artScene','artCover']) $(id).addEventListener('change', () => {
+  if (!selectedWork()) return;
+  const settings = { style: $('artStyle').value, scene: $('artScene').value, cover: $('artCover').checked };
+  persist({ ...draft, revision: draft.revision + 1, artSettings: { ...draft.artSettings, [activeChannel]: settings } });
+  renderReview();
+});
+$('peekPhoto').addEventListener('click', () => {
+  if (!choices(activeChannel)) return;
+  const original = $('peekPhoto').getAttribute('aria-pressed') === 'true';
+  $('peekPhoto').setAttribute('aria-pressed', String(!original));
+  if (original) renderFocusedArt(choices(activeChannel), { ...draft.facts, ...draft.proposal?.patch });
+  else $('previewSlot').replaceChildren(sourceImage());
+});
+$('phonePreview').addEventListener('click', () => {
+  const work = choices(activeChannel);
+  if ((work?.baseId ?? work?.id) !== 'delivery') return;
+  $('phoneArt').replaceChildren(art(work, draft.facts, $('photoPreview'), artOptions(work, draft.facts, true)));
+  $('phoneProduct').textContent = draft.facts.name;
+  $('phonePrice').textContent = money(draft.facts.price);
+  $('phoneDialog').showModal();
+});
+$('downloadJpeg').addEventListener('click', async () => {
+  const work = selectedWork();
+  if (!work || detailExportBlocked()) return;
+  try {
+    const image = art(work, draft.facts, $('photoPreview'), artOptions(work, draft.facts));
+    saveBlob(await getBlob(image, .91), work.title + '.jpg');
+    $('detailStatus').textContent = '已下载当前作品 JPG。';
+  } catch { $('detailStatus').textContent = '图片下载失败，请重试。'; }
+});
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 async function download(selected, feedback = notice) {
   if (busy || !allReady() || draft.proposal || selected.some(c => draft.edits[c.id]?.pending || c.id in buffers())) return;
   setBusy(true);
@@ -734,24 +866,19 @@ async function download(selected, feedback = notice) {
   try {
     feedback('正在打包当前版本。');
     const blob = await packageAssets(snapshot, selected, $('photoPreview'));
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     const name = snapshot.facts.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
-    link.download = `CafeBrief_${name}${selected.length === 1 ? '_' + selected[0].title : ''}_v${snapshot.revision}.zip`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    saveBlob(blob, `CafeBrief_${name}${selected.length === 1 ? '_' + selected[0].title : ''}_v${snapshot.revision}.zip`);
     feedback(`已打包 v${snapshot.revision}，包含 ${selected.length} 个渠道的图片和中文文案。`);
   } catch {
     feedback('打包失败，请重试。');
   } finally {
     setBusy(false);
-    if (activeChannel) $('downloadOne').disabled = detailExportBlocked();
+    syncReview();
   }
 }
-$('approve').addEventListener('click', () => download(channels(draft.facts)));
+$('approve').addEventListener('click', () => download(currentWorks()));
 $('downloadOne').addEventListener('click', () => download([choices(activeChannel)], text => { $('detailStatus').textContent = text; }));
-$('restart').addEventListener('click', () => {
+for (const id of ['restart', 'newFromWorkspace']) $(id).addEventListener('click', () => {
   $('newDraft').returnValue = '';
   $('newDraft').showModal();
 });
@@ -760,7 +887,7 @@ $('newDraft').addEventListener('close', async () => {
   persist(emptyDraft());
   activeChannel = null;
   lastChannel = null;
-  canvas.fit();
+  canvas.restore(null);
   $('note').value = '';
   await showPhoto();
   show('intake');
@@ -774,6 +901,7 @@ try {
   if (restored) {
     draft = restored;
     lastSavedToken = restored.saveToken ?? null;
+    if (restored.camera) canvas.restore(restored.camera);
     $('saved').textContent = '已恢复本机草稿';
   }
   $('note').value = draft.note;

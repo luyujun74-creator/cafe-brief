@@ -105,32 +105,48 @@ export function modelChange(value, command, facts) {
 export const normalizeBrand = (value = {}) => ({
   brand: bounded(value.brand, 24),
   selling: bounded(value.selling, 48),
+  offer: bounded(value.offer, 48),
 });
 
-export function validatedCopy(value, facts) {
+const copyClaims = /[¥￥%％\d]|[一二两三四五六七八九十百千]+\s*(?:元|块|折)|元[起整]|售价|仅售|折扣|优惠|免费|买.+送|半价|满.+减|领券|赠送|无糖|零糖|低卡|养生|功效|仅限|外卖|堂食|限量|活动|上新日|明日|后日|周末|工作日|本周|下周|本月|下月|今晚|今早|数量有限|售完|抢购|特价|秒杀/;
+const ingredients = /烘焙豆|咖啡豆|牛奶|燕麦|豆乳|椰乳|奶油|奶酪|巧克力|可可|焦糖|榛果|香草|肉桂|桂花|茉莉|抹茶|红茶|绿茶|乌龙|蜂蜜|草莓|蓝莓|柠檬|西柚|果汁|糖浆/g;
+
+export function validatedCopy(value, facts, branding) {
   const seen = new Set();
+  const confirmed = [facts.name, normalizeBrand(branding).selling].join(' ').normalize('NFKC');
+  const invalid = text => {
+    const normalized = text.normalize('NFKC');
+    return copyClaims.test(normalized) || dateMentions(normalized).length || text.includes(facts.name) ||
+      (facts.scope !== 'all' && /送到家|送上门|配送|无需出门/.test(normalized)) ||
+      (normalized.match(ingredients) ?? []).some(ingredient => !confirmed.includes(ingredient));
+  };
   return Object.fromEntries(channels(facts).flatMap(({ id }) => {
-    const text = bounded(value?.[id], 120);
-    const fingerprint = text.replace(/[\p{P}\s]/gu, '');
-    if (fingerprint.length < 8 || seen.has(fingerprint) || /[¥￥%％\d]|元[起整]|折扣|优惠|免费|买.+送|无糖|零糖|低卡|养生|功效|仅限|外卖|堂食|限量/.test(text) ||
-        dateMentions(text).length || text.includes(facts.name)) return [];
+    const entry = value?.[id];
+    const legacy = typeof entry === 'string';
+    const body = bounded(legacy ? entry : entry?.body, 120);
+    const title = bounded(entry?.title, 36);
+    const fingerprint = body.replace(/[\p{P}\s]/gu, '');
+    const testimonial = id === 'social' && /(?:最近|今天|刚刚)?发现了?一家|(?:我|我们)(?:去过|打卡过|上次去|亲测)/.test(body);
+    if (fingerprint.length < 8 || seen.has(fingerprint) || invalid(body) || testimonial ||
+        (!legacy && (title.length < 2 || invalid(title)))) return [];
     seen.add(fingerprint);
-    return [[id, text]];
+    return [[id, legacy ? body : { title, body }]];
   }));
 }
 
 export function channelLead(draft, channel) {
-  return draft.generated?.[channel.id] ?? channel.leads[draft.choices?.[channel.id]] ?? channel.leads[0];
+  const result = draft.generated?.[channel.baseId ?? channel.id];
+  return (typeof result === 'string' ? result : result?.body) ?? channel.leads[draft.choices?.[channel.baseId ?? channel.id]] ?? channel.leads[0];
 }
 
 export function artworkTitle(draft, channel) {
-  return draft.edits[channel.id]?.title || draft.facts.name;
+  return draft.edits[channel.id]?.title || draft.generated?.[channel.baseId ?? channel.id]?.title || draft.facts.name;
 }
 
 export function channelCopy(draft, channel) {
   const title = artworkTitle(draft, channel);
   const brand = normalizeBrand(draft.branding);
-  return [factLine(draft.facts), brand.brand, brand.selling, title !== draft.facts.name ? title : '',
+  return [factLine(draft.facts), brand.brand, brand.selling, brand.offer, title !== draft.facts.name ? title : '',
     draft.edits[channel.id]?.text ?? channelLead(draft, channel)].filter(Boolean).join('\n\n');
 }
 
@@ -141,7 +157,8 @@ export function applyFacts(draft, values) {
     id, { ...recordHistory(edit), pending: true },
   ]));
   const copyBuffers = Object.fromEntries(Object.entries(draft.copyBuffers ?? {}).map(([id, buffer]) => [id, recordHistory(buffer)]));
-  const generated = facts.name === draft.facts.name ? draft.generated : {};
+  const sameProduct = facts.name === draft.facts.name && facts.scope === draft.facts.scope;
+  const generated = sameProduct ? draft.generated : {};
   return { ...draft, facts, generated, edits, copyBuffers, revision: draft.revision + 1 };
 }
 

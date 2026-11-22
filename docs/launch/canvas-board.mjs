@@ -11,11 +11,10 @@ const placements = {
 
 const directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
-export function mountCanvas({ viewport, world, controls, onMove }) {
+export function mountCanvas({ viewport, world, controls, onMove, onCamera }) {
   let camera = { x: 0, y: 0, scale: 1 };
   let fitted = true;
   let minimum = .2;
-  let activeItem;
   let gesture;
   let lastDrag = -Infinity;
   let revealAnimations = [];
@@ -53,12 +52,7 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
     camera = zoomCamera(camera, scale, anchor ?? { x: rect.width / 2, y: rect.height / 2 });
     fitted = false;
     paint();
-  }
-
-  function raise(item) {
-    if (activeItem) activeItem.tile.dataset.raised = 'false';
-    activeItem = item;
-    item.tile.dataset.raised = 'true';
+    onCamera(camera);
   }
 
   function stopReveal() {
@@ -72,7 +66,6 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
     lastDrag = -Infinity;
     const tile = event.target.closest('.tile');
     const item = tile && cards.find(card => card.tile === tile);
-    if (item) raise(item);
     gesture = {
       id: event.pointerId, start: { x: event.clientX, y: event.clientY }, item,
       origin: item ? { x: item.x, y: item.y } : { x: camera.x, y: camera.y },
@@ -104,6 +97,7 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
     if (moved) {
       lastDrag = performance.now();
       if (item) onMove(item.id, { x: item.x, y: item.y });
+      else onCamera(camera);
     }
     gesture = undefined;
     delete viewport.dataset.dragging;
@@ -143,12 +137,12 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
       const step = event.shiftKey ? 60 : 20;
       fitted = false;
       if (item) {
-        raise(item);
         position(item, placeCard(item, { x: direction[0] * step, y: direction[1] * step }, 1));
         onMove(item.id, { x: item.x, y: item.y });
       } else {
         camera = { ...camera, x: camera.x - direction[0] * step, y: camera.y - direction[1] * step };
         paint();
+        onCamera(camera);
       }
     } else if (event.target === viewport && ['+', '-', '0', '='].includes(event.key)) {
       event.preventDefault();
@@ -173,16 +167,15 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
 
   controls.zoomIn.addEventListener('click', () => zoom(1.25));
   controls.out.addEventListener('click', () => zoom(.8));
-  controls.fit.addEventListener('click', fit);
+  controls.fit.addEventListener('click', () => { fit(); onCamera(null); });
   new ResizeObserver(() => { if (fitted) fit(); }).observe(viewport);
 
   return {
     render(tiles, positions) {
       stopReveal();
-      activeItem = undefined;
       cards = tiles.map(tile => {
         const id = tile.dataset.channel;
-        const placement = placements[id];
+        const placement = placements[tile.dataset.base ?? id];
         const item = { ...placement, id, tile };
         position(item, positions?.[id] ?? placement);
         tile.style.setProperty('--w', item.width + 'px');
@@ -202,5 +195,16 @@ export function mountCanvas({ viewport, world, controls, onMove }) {
       ], { duration: 420, delay: 65 + index * 70, fill: 'backwards', easing: 'cubic-bezier(.22, 1, .36, 1)' }));
     },
     fit,
+    fitIfAutomatic() { if (fitted) fit(); },
+    positionOf(id) { return cards.find(card => card.id === id); },
+    restore(value) {
+      if (!value) {
+        camera = { x: 0, y: 0, scale: 1 };
+        fitted = true;
+      } else if ([value.x, value.y, value.scale].every(Number.isFinite) && value.scale > 0) {
+        camera = value;
+        fitted = false;
+      }
+    },
   };
 }

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#ffffff">
-  <title>Café Brief · 新品上架 Agent</title>
+  <title>Café Brief · 商品工作室</title>
   <link rel="icon" href="/assets/favicon.svg">
   <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/launch/studio-shell.css">
@@ -15,14 +15,13 @@
   <header class="top">
     <div class="top-inner">
       <div class="brand"><img src="/assets/favicon.svg" width="28" height="28" alt=""><strong>Café Brief</strong><span>工作室</span></div>
-      <nav class="studio-navigation" aria-label="工作区"><a href="/" aria-current="page">新品上架</a><a href="/workbench">包装工作台</a></nav>
       <span class="model-status" id="modelStatus" role="status">本地工作区</span>
     </div>
   </header>
   <main>
-    <h1 class="sr-only">Café Brief 新品上架工作室</h1>
+    <h1 class="sr-only">Café Brief 商品工作室</h1>
     <div class="workflow-header">
-      <nav class="stepper" aria-label="新品上架进度">
+      <nav class="stepper" aria-label="创作进度">
         <ol>
           <li id="step-intake" aria-current="step"><span>1</span>提交素材</li>
           <li id="step-facts"><span>2</span>核对信息</li>
@@ -40,19 +39,27 @@
         <img id="photoPreview" alt="已上传的商品原片" hidden>
       </figure>
       <button id="pauseLight" class="light-toggle" type="button" hidden>暂停光影</button>
-      <form id="brief" class="intake-sheet stack" method="post" action="/api/launch/extract" aria-labelledby="intakeTitle">
-        <div><h2 id="intakeTitle" tabindex="-1">把新品<br>带上菜单</h2><p>一张商品照，一段备注，一整套上新物料。</p></div>
-        <div class="field upload">
-          <label for="photo"><span aria-hidden="true">＋</span> 选择商品照片</label>
+      <div class="intake-sheet stack">
+        <div><h2 id="intakeTitle" tabindex="-1">从一张照片<br>到整套物料</h2><p>拖入或选择照片，马上看海报首稿。</p></div>
+        <div class="field upload"><label for="photo"><span aria-hidden="true">＋</span> 选择商品照片</label>
           <input id="photo" class="sr-only" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photoState">
-          <small id="photoState" role="status">可拖入照片 · JPG、PNG、WebP，最大 15 MB</small>
-        </div>
-        <div class="field"><label for="note">上新备注</label><textarea id="note" name="note" rows="3" maxlength="1200" required placeholder="周五上冰奶油拿铁，28 元，仅限堂食。"></textarea></div>
-        <div class="row intake-buttons"><button class="primary" type="submit">整理商品信息 <span aria-hidden="true">↗</span></button><button id="sample" type="button">试用样品</button><button id="manual" type="button">手动填写</button></div>
-      </form>
+          <small id="photoState" role="status">可拖入照片 · JPG、PNG、WebP，最大 15 MB</small></div>
+        <div class="row"><button id="sample" type="button">试用拿铁示例</button><button id="resumeFirstDraft" type="button" hidden>继续核对商品</button></div>
+      </div>
     </section>
 
     <section id="facts" class="layout facts-layout" aria-labelledby="factsTitle" hidden>
+      <aside class="panel stack brief-side">
+        <h3>海报首稿</h3><div id="firstDraft"></div><p>确认资料后生成可发布的整套物料。</p>
+        <details><summary>用备注自动填资料</summary>
+          <form id="brief" class="stack" method="post" action="/api/launch/extract">
+            <div class="field"><label for="note">上新备注</label><textarea id="note" name="note" rows="2" maxlength="1200" required placeholder="周五上冰奶油拿铁，28 元，仅限堂食。"></textarea></div>
+            <button class="primary" type="submit">让 Gemma 整理</button>
+          </form>
+          <blockquote id="originalNote" hidden></blockquote>
+        </details>
+        <details><summary>原片和计划渠道</summary><img id="factPhoto" alt="待核对的商品照片" hidden><p id="factPlan"></p></details>
+      </aside>
       <form id="factsForm" class="panel stack" method="post" action="/api/launch/compose" aria-labelledby="factsTitle">
         <div><h2 id="factsTitle" tabindex="-1">核对商品信息</h2><p id="extractionSource"></p></div>
         <div class="fact-grid">
@@ -63,19 +70,27 @@
             <legend>销售范围</legend><div class="row pick"><label><input type="radio" name="scope" value="store" required>仅限堂食</label><label><input type="radio" name="scope" value="all">堂食和外卖</label></div><small id="source-scope"></small>
           </fieldset>
         </div>
-        <div class="fact-grid">
-          <div class="field"><label for="brand">店名（选填）</label><input id="brand" maxlength="24" autocomplete="organization"></div>
-          <div class="field"><label for="selling">已确认卖点（选填）</label><input id="selling" maxlength="48" placeholder="例如 桂花香与轻盈茶感"></div>
-        </div>
-        <div class="row"><button type="submit" class="primary">确认并制作物料</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回素材</button></div>
+        <details class="optional-facts"><summary>补充店名、卖点或促销</summary>
+          <div class="fact-grid">
+            <div class="field"><label for="brand">店名</label><input id="brand" maxlength="24" autocomplete="organization"></div>
+            <div class="field"><label for="selling">已确认卖点</label><input id="selling" maxlength="48" placeholder="例如 桂花香与轻盈茶感"></div>
+            <div class="field"><label for="offer">已确认促销</label><input id="offer" maxlength="48"></div>
+          </div>
+        </details>
+        <div class="row"><button type="submit" class="primary">生成整套图文</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回素材</button></div>
       </form>
-      <aside class="panel stack brief-side"><img id="factPhoto" alt="待核对的商品照片" hidden><h3>原始备注</h3><blockquote id="originalNote"></blockquote><h3>计划制作</h3><p id="factPlan"></p></aside>
+    </section>
+
+    <section id="workspace" class="panel stack" aria-labelledby="workspaceTitle" hidden>
+      <div><h2 id="workspaceTitle" tabindex="-1">当前草稿</h2><p id="workspaceProduct"></p></div>
+      <div class="row"><button id="resumeCanvas" class="primary" type="button">继续编辑当前画布</button><button id="newFromWorkspace" type="button">开始下一款</button></div>
     </section>
 
     <section id="review" aria-labelledby="reviewTitle" hidden>
       <div class="review-heading">
         <div><h2 id="reviewTitle" tabindex="-1">创作画布</h2><p id="planSource"></p></div>
         <div class="row review-tools">
+          <button id="returnWorkspace" type="button">返回工作室</button>
           <button id="editProduct" type="button">编辑商品</button>
           <label for="replacement" class="file-button">更换照片</label><input id="replacement" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
           <a href="#actions" class="jump">修改 / 打包</a>
@@ -84,11 +99,16 @@
       <div class="layout review-layout">
         <div class="gallery">
           <div class="canvas-toolbar">
-            <div class="row canvas-mode"><button id="canvasOverview" type="button" aria-pressed="true">全景</button><button id="canvasFocus" type="button" aria-pressed="false">聚焦</button></div>
+            <div class="row canvas-mode" id="canvasMode"><button id="canvasOverview" type="button" aria-pressed="true">全景</button><button id="canvasFocus" type="button" aria-pressed="false">聚焦</button></div>
             <div class="row canvas-zoom" id="canvasZoom">
               <button id="zoomOut" type="button" aria-label="缩小">−</button><output id="zoomValue" aria-label="缩放比例">100%</output><button id="zoomIn" type="button" aria-label="放大">＋</button><button id="fitCanvas" type="button">适配</button>
             </div>
-            <span id="focusCount" class="focus-count" hidden></span>
+            <div id="focusControls" class="row" hidden>
+              <span id="focusCount" class="focus-count"></span>
+              <button id="closeDetail" type="button">返回画布</button>
+              <button id="jumpToWork" type="button">编辑作品</button>
+              <button id="deleteWork" type="button">删除作品</button>
+            </div>
           </div>
           <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="可平移缩放的物料画布" aria-describedby="canvasHelp">
             <div id="board" class="board" aria-label="渠道物料"></div>
@@ -101,6 +121,7 @@
             <div class="channel-list" id="channelList" aria-label="按渠道切换"></div>
             <button id="nextChannel" class="channel-arrow" type="button" aria-label="下一件">›</button>
           </div>
+          <div class="row" id="canvasRecovery" hidden><button id="undoDelete" type="button">撤销删除</button></div>
           <p id="canvasHelp" class="canvas-help">拖动空白平移 · 滚轮缩放 · 拖动卡片排列 · 点击聚焦</p>
           <p id="excluded" class="skip-note" hidden>仅限堂食 · 跳过外卖主图</p>
         </div>
@@ -122,18 +143,29 @@
           <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button><button id="writeCopy" type="button">重写默认文案</button></div>
           </div>
           <section id="sourceDetail" class="stack" aria-labelledby="sourceTitle" hidden>
-            <div class="row action-heading"><h3 id="sourceTitle" tabindex="-1">商品原片</h3><button id="closeSource" type="button">回全景</button></div>
+            <div class="row action-heading"><h3 id="sourceTitle" tabindex="-1">商品原片</h3></div>
             <p id="sourceFilename"></p>
           </section>
           <section id="detail" aria-labelledby="detailTitle" hidden>
             <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
-              <div class="row action-heading"><h3 id="detailTitle" tabindex="-1"></h3><button id="closeDetail" type="button">回全景</button></div>
+              <div class="row action-heading"><h3 id="detailTitle" tabindex="-1"></h3></div>
               <p id="detailFacts"></p>
+              <p id="copySource"></p>
+              <div class="row work-tools" role="group" aria-label="当前作品操作">
+                <button id="duplicate" type="button">复制作品</button><button id="raiseWork" type="button">置于顶层</button>
+                <button id="lowerWork" type="button">置于底层</button>
+              </div>
+              <details class="art-tools"><summary>换版与图片设置</summary>
+                <div class="field"><label for="artStyle">套版</label><select id="artStyle"><option value="">原版</option><option value="editorial">奶油画报</option><option value="vermilion">朱砂简报</option><option value="forest">森林夜场</option></select></div>
+                <div class="field"><label for="artScene">场景光色</label><select id="artScene"><option value="">商品柔光</option><option value="amber">暖窗光</option><option value="stone">冷石灰</option></select></div>
+                <label class="row"><input id="artCover" type="checkbox">铺满裁切</label>
+                <div class="row"><button id="peekPhoto" type="button" aria-pressed="false">对照原片</button><button id="phonePreview" type="button" hidden>外卖顾客视角</button></div>
+              </details>
               <p id="detailConflict" class="conflict" role="status" hidden></p>
               <div class="field"><label for="artTitle">画面标题</label><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">标题会写入预览和导出的 JPG。</small></div>
               <div class="field"><label for="copy">发布文案</label><textarea id="copy" name="copy" rows="5" maxlength="280" required></textarea></div>
               <p id="detailStatus" class="notice" role="status"></p>
-              <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button></div>
+              <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button><button id="downloadJpeg" type="button">单张 JPG</button></div>
             </form>
           </section>
           <p id="reviewNotice" class="notice" role="status"></p>
@@ -142,6 +174,10 @@
     </section>
   </main>
 
+  <dialog id="phoneDialog" aria-labelledby="phoneTitle"><form method="dialog" class="stack">
+    <div class="row action-heading"><h2 id="phoneTitle">外卖顾客视角</h2><button>关闭</button></div>
+    <div class="delivery-preview"><div id="phoneArt"></div><div><strong id="phoneProduct"></strong><p id="phonePrice"></p></div></div>
+  </form></dialog>
   <dialog id="productDialog" aria-labelledby="productTitle">
     <form id="productForm" class="stack">
       <h2 id="productTitle">编辑商品</h2>
@@ -151,6 +187,7 @@
         <div class="field"><label for="editDay">上新时间</label><input id="editDay" maxlength="32" required></div>
         <div class="field"><label for="editScope">销售范围</label><select id="editScope"><option value="store">仅限堂食</option><option value="all">堂食和外卖</option></select></div>
         <div class="field"><label for="editBrand">店名（选填）</label><input id="editBrand" maxlength="24"></div>
+        <div class="field"><label for="editOffer">已确认促销（选填）</label><input id="editOffer" maxlength="48"></div>
         <div class="field"><label for="editSelling">已确认卖点（选填）</label><input id="editSelling" maxlength="48"></div>
       </div>
       <p id="productError" class="notice" role="status"></p>
