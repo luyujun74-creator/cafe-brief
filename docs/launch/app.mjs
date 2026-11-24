@@ -1,16 +1,16 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
-} from './workflow.mjs?v=202611242';
-import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611242';
-import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611242';
-import { mountCanvas } from './canvas-board.mjs?v=202611242';
-import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611242';
-import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611242';
+} from './workflow.mjs?v=202611243';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611243';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611243';
+import { mountCanvas } from './canvas-board.mjs?v=202611243';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611243';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611243';
 import {
   channelNames, fallbackPalette, firstQuestion, paletteFromPixels, parseInstruction, rewriteCandidates, titleLimit, titleOverflow, toneCopy, tones,
-} from './ai-engine.mjs?v=202611242';
-import { illustrationFile } from './illustration.mjs?v=202611242';
+} from './ai-engine.mjs?v=202611243';
+import { illustrationFile } from './illustration.mjs?v=202611243';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -146,7 +146,15 @@ async function request(action, body, timeout = 68_000) {
   return result;
 }
 
+// GitHub Pages 是纯静态托管，没有本机大模型服务：直接用内置文案引擎，不发注定 404 的探测请求。
+const staticHost = location.hostname.endsWith('github.io');
+
 async function refreshStatus() {
+  if (staticHost) {
+    modelReady = false;
+    setAiStatus();
+    return;
+  }
   try {
     const response = await fetch('/api/launch/status', { signal: AbortSignal.timeout(2700) });
     if (!response.ok) throw new Error();

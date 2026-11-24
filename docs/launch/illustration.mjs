@@ -1,5 +1,5 @@
 // 没有商品照时的示意插画：纯本地绘制，不依赖网络，保证「直接使用文字示例」和示例照片超时时都能出首稿。
-import { getBlob } from './media.mjs?v=202611242';
+import { getBlob } from './media.mjs?v=202611243';
 
 const palettes = {
   fresh: { wall: '#e6f2ec', table: '#cfe3d8', drink: ['#f4f7e8', '#b9d77a', '#7fae4a'], glass: '#ffffffb0' },
