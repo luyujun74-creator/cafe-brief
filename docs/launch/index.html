@@ -8,8 +8,8 @@
   <link rel="icon" href="../assets/favicon.svg">
   <link rel="stylesheet" href="../tokens.css">
   <link rel="stylesheet" href="../launch/studio-shell.css">
-  <link rel="stylesheet" href="../launch/launch.css">
-  <script type="module" src="../launch/app.mjs"></script>
+  <link rel="stylesheet" href="../launch/launch.css?v=20261124">
+  <script type="module" src="../launch/app.mjs?v=20261124"></script>
 </head>
 <body data-stage="intake">
   <header class="top">
@@ -48,6 +48,13 @@
       </div>
     </section>
 
+    <section id="recent" class="recent" aria-labelledby="recentTitle" hidden>
+      <div class="recent-head"><h2 id="recentTitle" tabindex="-1">最近草稿</h2><small>仅保存在本机浏览器，最多保留 6 份</small></div>
+      <ul id="recentList" class="recent-list"></ul>
+      <p id="recentEmpty" class="recent-empty" hidden>暂无草稿</p>
+      <div class="recent-status"><span id="recentStatus" role="status"></span><button id="undoDraftDelete" type="button" hidden>撤销</button></div>
+    </section>
+
     <section id="facts" class="layout facts-layout" aria-labelledby="factsTitle" hidden>
       <aside class="panel stack brief-side">
         <h3>海报首稿</h3><div id="firstDraft"></div><p>确认资料后生成可发布的整套物料。</p>
@@ -79,11 +86,6 @@
         </details>
         <div class="row"><button type="submit" class="primary">生成整套图文</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回素材</button></div>
       </form>
-    </section>
-
-    <section id="workspace" class="panel stack" aria-labelledby="workspaceTitle" hidden>
-      <div><h2 id="workspaceTitle" tabindex="-1">当前草稿</h2><p id="workspaceProduct"></p></div>
-      <div class="row"><button id="resumeCanvas" class="primary" type="button">继续编辑当前画布</button><button id="newFromWorkspace" type="button">开始下一款</button></div>
     </section>
 
     <section id="review" aria-labelledby="reviewTitle" hidden>
@@ -192,12 +194,6 @@
       </div>
       <p id="productError" class="notice" role="status"></p>
       <div class="row"><button class="primary" type="submit">保存商品资料</button><button id="cancelProduct" type="button">取消</button></div>
-    </form>
-  </dialog>
-  <dialog id="newDraft" aria-labelledby="newDraftTitle">
-    <form method="dialog" class="stack">
-      <h2 id="newDraftTitle">开始下一款？</h2><p>此浏览器只保留一份工作草稿。需要留档时，请先下载当前版本。</p>
-      <div class="row"><button value="cancel" autofocus>继续当前草稿</button><button class="primary" value="new">开始新草稿</button></div>
     </form>
   </dialog>
 </body>

@@ -247,8 +247,34 @@ summary { cursor: pointer; color: var(--light); }
 #canvasRecovery { padding: 6px 10px; }
 .tile { z-index: var(--level, 0); }
 .board { isolation: isolate; }
-#workspace { max-width: 690px; }
-body[data-stage="workspace"] .stepper { visibility: hidden; }
+.recent { margin-block-start: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
+.recent-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.recent-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.recent-head small { font-size: 12px; }
+.recent-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; }
+.recent-item { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding-block: 8px; border-top: 1px solid var(--line); }
+.recent-item:first-child { border-top: 0; }
+.recent-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; background: var(--surface); }
+.recent-text { display: grid; min-width: 0; line-height: 1.4; }
+.recent-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-text span { color: var(--soft); font-size: 13px; }
+.recent-text small { font-size: 12px; }
+.recent-actions { gap: 8px; flex-wrap: nowrap; }
+.recent-actions button, #undoDraftDelete { min-height: 36px; padding-block: 5px; }
+.recent-delete { color: #ffc3b7; border-color: #85524a; background: transparent; }
+.recent-delete:hover { background: #4b3029; }
+.recent-empty { margin: 8px 0 0; font-size: 13px; }
+.recent-status { display: flex; align-items: center; gap: 10px; min-height: 0; font-size: 13px; color: var(--soft); }
+.recent-status:has(#undoDraftDelete:not([hidden])) { margin-block-start: 8px; padding: 6px 6px 6px 10px; border-radius: 6px; background: var(--surface); }
+#undoDraftDelete { color: var(--light); }
+@media (max-width: 760px) {
+  .recent { margin-block-start: 10px; padding: 10px 12px; }
+  .recent-item { grid-template-columns: 44px minmax(0, 1fr); row-gap: 8px; }
+  .recent-thumb { width: 44px; height: 44px; }
+  .recent-actions { grid-column: 1 / -1; }
+  .recent-actions button, #undoDraftDelete { flex: 1; min-height: 44px; }
+  #undoDraftDelete { flex: 0 0 auto; min-width: 72px; }
+}
 #deleteWork { color: #ffc1ac; border-color: #86564d; }
 #copySource { color: var(--light); font-size: 12px; }
 .delivery-preview { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: center; padding: 10px; background: #343b34; border-radius: 8px; }

@@ -5,7 +5,8 @@ import {
 import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs';
 import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs';
 import { mountCanvas } from './canvas-board.mjs';
-import { loadDraft, openDraftStore, saveDraft } from './storage.mjs';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=20261124';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=20261124';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -25,7 +26,7 @@ let saveQueue = Promise.resolve();
 let anotherTabSaved = false;
 const mobile = matchMedia('(max-width: 760px)');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const stages = ['intake', 'facts', 'review', 'workspace'];
+const stages = ['intake', 'facts', 'review'];
 const currentWorks = () => works(draft);
 const choices = id => currentWorks().find(channel => channel.id === id);
 const sourceItem = { id: 'source', title: '商品原片' };
@@ -48,8 +49,16 @@ const canvas = mountCanvas({
   onMove(id, point) { persist({ ...draft, positions: { ...draft.positions, [id]: point } }); },
 });
 
+function remember(productId) {
+  try {
+    if (productId) sessionStorage.setItem(SESSION_KEY, productId);
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch { /* 隐私模式下无会话存储时，刷新会回到首页。 */ }
+}
+
 function persist(next) {
-  draft = next;
+  draft = { ...next, updatedAt: Date.now() };
+  remember(draft.productId);
   if (!db) {
     $('saved').textContent = '浏览器存储不可用';
     return;
@@ -83,8 +92,9 @@ function show(stage, focus = true) {
   }
   if (stage === 'intake' && document.readyState === 'complete' && !draft.photo) loadHero();
   if (stage === 'intake') $('resumeFirstDraft').hidden = !draft.photo;
+  $('recent').hidden = stage !== 'intake' || !$('recent').dataset.filled;
+  if (stage === 'intake') void renderRecent();
   if (stage === 'facts') renderFacts();
-  if (stage === 'workspace') $('workspaceProduct').textContent = factLine(draft.facts);
   if (stage === 'review') {
     activeChannel = draft.focusedWork === undefined && mobile.matches ? currentWorks()[0]?.id ?? 'source' : draft.focusedWork;
     lastChannel = draft.lastWork;
@@ -198,12 +208,12 @@ const carriesFiles = event => event.dataTransfer.types.includes('Files');
 window.addEventListener('dragover', event => {
   if (!carriesFiles(event)) return;
   event.preventDefault();
-  event.dataTransfer.dropEffect = busy || $('newDraft').open || $('productDialog').open ? 'none' : 'copy';
+  event.dataTransfer.dropEffect = busy || $('productDialog').open ? 'none' : 'copy';
 });
 window.addEventListener('drop', event => {
   if (!carriesFiles(event)) return;
   event.preventDefault();
-  if (busy || $('newDraft').open || $('productDialog').open) return;
+  if (busy || $('productDialog').open) return;
   const file = event.dataTransfer.files[0];
   if (!file) return;
   if (draft.stage === 'review') void replacePhoto(file);
@@ -716,17 +726,13 @@ $('jumpToWork').addEventListener('click', () => {
   $('detailTitle').focus({ preventScroll: true });
 });
 $('returnWorkspace').addEventListener('click', () => {
-  persist({ ...draft, stage: 'workspace', focusedWork: activeChannel ?? null });
-  show('workspace');
-});
-$('resumeCanvas').addEventListener('click', () => {
-  persist({ ...draft, stage: 'review' });
-  show('review');
+  persist({ ...draft, focusedWork: activeChannel ?? null });
+  void goHome();
 });
 $('previousChannel').addEventListener('click', () => switchChannel(-1));
 $('nextChannel').addEventListener('click', () => switchChannel(1));
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && activeChannel && !$('newDraft').open && !$('productDialog').open && !busy) showOverview(true);
+  if (event.key === 'Escape' && activeChannel && !$('productDialog').open && !busy) showOverview(true);
 });
 let swipe;
 $('focusView').addEventListener('touchstart', event => {
@@ -896,19 +902,141 @@ $('downloadOne').addEventListener('click', () => {
   if (detailExportBlocked()) return;
   void download([choices(activeChannel)], text => { $('detailStatus').textContent = text; });
 });
-for (const id of ['restart', 'newFromWorkspace']) $(id).addEventListener('click', () => {
-  $('newDraft').returnValue = '';
-  $('newDraft').showModal();
+$('restart').addEventListener('click', async () => {
+  await goHome();
+  $('photo').focus({ preventScroll: true });
 });
-$('newDraft').addEventListener('close', async () => {
-  if ($('newDraft').returnValue !== 'new') return;
-  persist(emptyDraft());
+
+// 回到工作室首页：当前作品已存在本机，作为「最近草稿」列在上传入口下方。
+async function goHome() {
+  draft = emptyDraft();
+  remember(null);
   activeChannel = null;
   lastChannel = null;
   canvas.restore(null);
   $('note').value = '';
+  $('saved').textContent = '';
   await showPhoto();
   show('intake');
+}
+
+let recentRender = 0;
+async function renderRecent() {
+  const number = ++recentRender;
+  const section = $('recent');
+  let entries = [];
+  if (db) {
+    await saveQueue;
+    entries = recentDrafts(await listDrafts(db).catch(() => []), draft.photo ? draft.productId : null);
+  }
+  if (number !== recentRender) return;
+  for (const url of section.querySelectorAll('img')) URL.revokeObjectURL(url.src);
+  $('recentList').replaceChildren(...entries.map(recentItem));
+  section.dataset.filled = entries.length || pendingRemoval ? 'true' : '';
+  section.hidden = document.body.dataset.stage !== 'intake' || !section.dataset.filled;
+  $('recentEmpty').hidden = entries.length > 0;
+}
+
+function recentItem({ key, draft: saved }) {
+  const summary = draftSummary(saved);
+  const item = document.createElement('li');
+  item.className = 'recent-item';
+  item.dataset.key = key;
+  const thumb = document.createElement('img');
+  thumb.className = 'recent-thumb';
+  thumb.alt = '';
+  thumb.width = 48;
+  thumb.height = 48;
+  thumb.decoding = 'async';
+  if (saved.photo instanceof Blob) thumb.src = URL.createObjectURL(saved.photo);
+  const text = document.createElement('div');
+  text.className = 'recent-text';
+  const title = document.createElement('strong');
+  title.textContent = summary.title;
+  const facts = document.createElement('span');
+  facts.textContent = summary.facts;
+  const meta = document.createElement('small');
+  meta.textContent = summary.meta;
+  text.append(title, facts, meta);
+  const actions = document.createElement('div');
+  actions.className = 'row recent-actions';
+  const resume = document.createElement('button');
+  resume.type = 'button';
+  resume.className = 'primary';
+  resume.textContent = '继续编辑';
+  resume.setAttribute('aria-label', '继续编辑：' + summary.title);
+  resume.addEventListener('click', () => void resumeDraft(key, saved));
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'recent-delete';
+  remove.textContent = '删除草稿';
+  remove.setAttribute('aria-label', '删除草稿：' + summary.title);
+  remove.addEventListener('click', () => void deleteDraft(key, saved, summary.title));
+  actions.append(resume, remove);
+  item.append(thumb, text, actions);
+  return item;
+}
+
+async function resumeDraft(key, saved) {
+  if (busy) return;
+  await finishRemoval();
+  const stage = continueStage(saved);
+  if (key === 'current') {
+    draft = saved;
+    remember(saved.productId);
+  } else {
+    persist({ ...saved, stage });
+  }
+  draft = { ...draft, stage };
+  canvas.restore(saved.camera ?? null);
+  $('note').value = draft.note ?? '';
+  $('saved').textContent = '已打开本机草稿';
+  await showPhoto();
+  show(stage);
+}
+
+let pendingRemoval = null;
+async function deleteDraft(key, saved, title) {
+  if (busy || !db) return;
+  await finishRemoval();
+  await saveQueue;
+  try {
+    await removeDraft(db, key);
+  } catch {
+    $('recentStatus').textContent = '删除失败，请重试。';
+    return;
+  }
+  if (key === 'current') lastSavedToken = null;
+  pendingRemoval = { key, saved, timer: setTimeout(() => void finishRemoval(), UNDO_MS) };
+  $('recentStatus').textContent = `已删除「${title}」草稿。`;
+  $('undoDraftDelete').hidden = false;
+  await renderRecent();
+  $('undoDraftDelete').focus({ preventScroll: true });
+}
+
+async function finishRemoval() {
+  if (!pendingRemoval) return;
+  clearTimeout(pendingRemoval.timer);
+  pendingRemoval = null;
+  const hadFocus = document.activeElement === $('undoDraftDelete');
+  $('undoDraftDelete').hidden = true;
+  $('recentStatus').textContent = '';
+  await renderRecent();
+  if (hadFocus) ($('recent').hidden ? $('photo') : $('recentTitle')).focus({ preventScroll: true });
+}
+
+$('undoDraftDelete').addEventListener('click', async () => {
+  if (!pendingRemoval || !db) return;
+  const { key, saved, timer } = pendingRemoval;
+  clearTimeout(timer);
+  pendingRemoval = null;
+  await saveQueue;
+  const target = await putBackDraft(db, key, saved);
+  if (target === 'current') lastSavedToken = saved.saveToken ?? null;
+  $('undoDraftDelete').hidden = true;
+  $('recentStatus').textContent = '已恢复草稿。';
+  await renderRecent();
+  $('recentList').querySelector('button')?.focus({ preventScroll: true });
 });
 
 setBusy(true);
@@ -916,11 +1044,17 @@ void refreshStatus();
 try {
   db = await openDraftStore();
   const restored = await loadDraft(db);
-  if (restored) {
-    draft = restored;
-    lastSavedToken = restored.saveToken ?? null;
+  lastSavedToken = restored?.saveToken ?? null;
+  let sessionProductId = null;
+  try { sessionProductId = sessionStorage.getItem(SESSION_KEY); } catch { /* 无会话存储时按新打开处理。 */ }
+  const navigationType = performance.getEntriesByType('navigation')[0]?.type ?? 'navigate';
+  const stage = resumeStage({ navigationType, sessionProductId, stored: restored });
+  if (stage) {
+    draft = { ...restored, stage };
     if (restored.camera) canvas.restore(restored.camera);
     $('saved').textContent = '已恢复本机草稿';
+  } else {
+    remember(null);
   }
   $('note').value = draft.note;
   await showPhoto();
