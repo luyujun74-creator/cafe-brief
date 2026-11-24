@@ -1,5 +1,5 @@
-import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs';
-import { makeZip } from './zip.mjs';
+import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs?v=202611242';
+import { makeZip } from './zip.mjs?v=202611242';
 
 export const getBlob = (canvas, quality) => new Promise((resolve, reject) => {
   canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('图片编码失败。')), 'image/jpeg', quality);
@@ -108,7 +108,8 @@ export function art(channel, facts, picture, { thumbnail = false, branding, titl
   canvas.setAttribute('aria-label', [title, facts.name === title ? '' : facts.name, facts.price == null ? '' : money(facts.price), facts.day, facts.scope ? scopeLabel(facts.scope) : ''].filter(Boolean).join(' · '));
   const ctx = canvas.getContext('2d', { alpha: false });
   ctx.scale(canvas.width / w, canvas.height / h);
-  const theme = { ...artThemes[channel.baseId ?? channel.id], ...styles[settings.style] };
+  const palette = settings.palette && /^#[0-9a-f]{6}$/i.test(settings.palette.paper ?? '') ? { paper: settings.palette.paper, ink: settings.palette.ink, accent: settings.palette.accent } : {};
+  const theme = { ...artThemes[channel.baseId ?? channel.id], ...styles[settings.style], ...palette };
   const headlineFont = theme.serif ? '"Songti SC", "Noto Serif CJK SC", Georgia, serif' : font;
   const { brand, selling, offer } = normalizeBrand(branding);
   const unit = Math.min(w, h);

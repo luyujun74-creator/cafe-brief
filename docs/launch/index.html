@@ -1,188 +1,290 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-rail="expanded">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#ffffff">
-  <title>Café Brief · 商品工作室</title>
+  <title>Café Brief · AI 创作工作台</title>
   <link rel="icon" href="../assets/favicon.svg">
-  <link rel="stylesheet" href="../tokens.css">
-  <link rel="stylesheet" href="../launch/studio-shell.css">
-  <link rel="stylesheet" href="../launch/launch.css?v=20261124">
-  <script type="module" src="../launch/app.mjs?v=20261124"></script>
+  <script>try { document.documentElement.dataset.rail = localStorage.getItem('cafe-brief:rail') === 'collapsed' ? 'collapsed' : 'expanded'; } catch {}</script>
+  <link rel="stylesheet" href="../tokens.css?v=202611242">
+  <link rel="stylesheet" href="../launch/workbench.css?v=202611242">
+  <script type="module" src="../launch/app.mjs?v=202611242"></script>
 </head>
 <body data-stage="intake">
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5zM4 10h16M10 10v10"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6V4.5h14V6M12 4.5v15m-3 0h6"/></symbol>
+    <symbol id="i-channels" viewBox="0 0 24 24"><path d="M3.5 6h8v12h-8zM14 4h6.5v7H14zM14 14h6.5v6H14z"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.5H8M12 8v4.5l3 1.8"/></symbol>
+    <symbol id="i-fold" viewBox="0 0 24 24"><path d="M4 4.5h16v15H4zM9.5 4.5v15M16 9.5L13.5 12l2.5 2.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  </svg>
+
   <header class="top">
-    <div class="top-inner">
-      <div class="brand"><img src="../assets/favicon.svg" width="28" height="28" alt=""><strong>Café Brief</strong><span>工作室</span></div>
-      <span class="model-status" id="modelStatus" role="status">本地工作区</span>
-    </div>
+    <a class="brand" href="./" aria-label="Café Brief 首页"><img src="../assets/favicon.svg" width="24" height="24" alt=""><strong>Café Brief</strong><span>AI 创作工作台</span></a>
+    <span class="ai-status" id="modelStatus" role="status" data-ready="local"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 就绪</span>
+    <span id="saved" class="saved" role="status"></span>
   </header>
-  <main>
-    <h1 class="sr-only">Café Brief 商品工作室</h1>
-    <div class="workflow-header">
-      <nav class="stepper" aria-label="创作进度">
-        <ol>
-          <li id="step-intake" aria-current="step"><span>1</span>提交素材</li>
-          <li id="step-facts"><span>2</span>核对信息</li>
-          <li id="step-review"><span>3</span>创作画布</li>
-        </ol>
-      </nav>
-      <span id="saved" class="quiet" role="status"></span>
-    </div>
-    <p id="notice" class="notice" role="status"></p>
 
-    <section id="intake" class="intake" aria-labelledby="intakeTitle">
-      <figure class="photo-panel">
-        <img id="photoEmpty" class="scenery" src="../assets/scene-window.webp" alt="" fetchpriority="high">
-        <img id="heroSubject" class="hero-subject" alt="" width="552" height="732" hidden>
-        <img id="photoPreview" alt="已上传的商品原片" hidden>
-      </figure>
-      <button id="pauseLight" class="light-toggle" type="button" hidden>暂停光影</button>
-      <div class="intake-sheet stack">
-        <div><h2 id="intakeTitle" tabindex="-1">从一张照片<br>到整套物料</h2><p>拖入或选择照片，马上看海报首稿。</p></div>
-        <div class="field upload"><label for="photo"><span aria-hidden="true">＋</span> 选择商品照片</label>
-          <input id="photo" class="sr-only" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photoState">
-          <small id="photoState" role="status">可拖入照片 · JPG、PNG、WebP，最大 15 MB</small></div>
-        <div class="row"><button id="sample" type="button">试用拿铁示例</button><button id="resumeFirstDraft" type="button" hidden>继续核对商品</button></div>
-      </div>
-    </section>
+  <div class="shell">
+    <nav id="rail" class="rail" aria-label="工具栏">
+      <button id="railToggle" class="rail-toggle" type="button" aria-expanded="true" aria-controls="rail">
+        <svg class="icon" aria-hidden="true"><use href="#i-fold"/></svg><span class="rail-label">收起工具栏</span>
+      </button>
+      <ul class="rail-list">
+        <li><button class="rail-item" type="button" data-tool="upload" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span class="rail-label">上传/商品</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="ai" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span class="rail-label">AI 生成</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="template" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="rail-label">模板版式</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="text" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span class="rail-label">文字</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="channels" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-channels"/></svg><span class="rail-label">渠道适配</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="export" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-export"/></svg><span class="rail-label">导出</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="recent" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-history"/></svg><span class="rail-label">最近草稿</span></button></li>
+      </ul>
+    </nav>
 
-    <section id="recent" class="recent" aria-labelledby="recentTitle" hidden>
-      <div class="recent-head"><h2 id="recentTitle" tabindex="-1">最近草稿</h2><small>仅保存在本机浏览器，最多保留 6 份</small></div>
-      <ul id="recentList" class="recent-list"></ul>
-      <p id="recentEmpty" class="recent-empty" hidden>暂无草稿</p>
-      <div class="recent-status"><span id="recentStatus" role="status"></span><button id="undoDraftDelete" type="button" hidden>撤销</button></div>
-    </section>
-
-    <section id="facts" class="layout facts-layout" aria-labelledby="factsTitle" hidden>
-      <aside class="panel stack brief-side">
-        <h3>海报首稿</h3><div id="firstDraft"></div><p>确认资料后生成可发布的整套物料。</p>
-        <details><summary>用备注自动填资料</summary>
-          <form id="brief" class="stack" method="post" action="/api/launch/extract">
-            <div class="field"><label for="note">上新备注</label><textarea id="note" name="note" rows="2" maxlength="1200" required placeholder="周五上冰奶油拿铁，28 元，仅限堂食。"></textarea></div>
-            <button class="primary" type="submit">让 Gemma 整理</button>
-          </form>
-          <blockquote id="originalNote" hidden></blockquote>
-        </details>
-        <details><summary>原片和计划渠道</summary><img id="factPhoto" alt="待核对的商品照片" hidden><p id="factPlan"></p></details>
-      </aside>
-      <form id="factsForm" class="panel stack" method="post" action="/api/launch/compose" aria-labelledby="factsTitle">
-        <div><h2 id="factsTitle" tabindex="-1">核对商品信息</h2><p id="extractionSource"></p></div>
-        <div class="fact-grid">
-          <div class="field"><label for="name">商品名</label><input id="name" name="name" maxlength="36" aria-describedby="source-name" required><small id="source-name"></small></div>
-          <div class="field"><label for="price">售价（元）</label><input type="text" inputmode="decimal" pattern="[0-9]{1,4}(\.[0-9]{1,2})?" id="price" name="price" aria-describedby="source-price" required><small id="source-price"></small></div>
-          <div class="field"><label for="day">上新时间</label><input id="day" name="day" maxlength="32" placeholder="例如 周五或 11 月 28 日" aria-describedby="source-day" required><small id="source-day"></small></div>
-          <fieldset class="field" aria-describedby="source-scope">
-            <legend>销售范围</legend><div class="row pick"><label><input type="radio" name="scope" value="store" required>仅限堂食</label><label><input type="radio" name="scope" value="all">堂食和外卖</label></div><small id="source-scope"></small>
-          </fieldset>
+    <aside id="toolPanel" class="tool-panel" aria-labelledby="toolTitle" hidden>
+      <div class="tool-head"><h2 id="toolTitle" tabindex="-1">工具</h2><button id="closeTool" class="icon-button" type="button" aria-label="关闭面板"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+      <div class="tool-body">
+        <div data-panel="upload" class="stack" hidden>
+          <div class="product-card"><img id="toolPhoto" alt="当前商品照片" hidden><div><strong id="toolProduct">还没有商品</strong><small id="toolFacts">上传照片或在中间输入一句话</small></div></div>
+          <label for="replacement" class="button">选择商品照片</label><input id="replacement" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
+          <button id="editProduct" type="button">编辑商品信息</button>
+          <p class="hint">照片只保存在本机浏览器，离线也能继续编辑。</p>
         </div>
-        <details class="optional-facts"><summary>补充店名、卖点或促销</summary>
+        <div data-panel="ai" class="stack" hidden>
+          <form id="regenForm" class="stack">
+            <label for="regenPrompt">换个说法重新生成</label>
+            <textarea id="regenPrompt" rows="3" maxlength="300" placeholder="例如：温暖一点，只做朋友圈"></textarea>
+            <div class="chip-row" role="group" aria-label="文案语气">
+              <button type="button" class="chip" data-tone="fresh">清爽</button><button type="button" class="chip" data-tone="warm">温暖</button><button type="button" class="chip" data-tone="lively">活泼</button><button type="button" class="chip" data-tone="premium">质感</button>
+            </div>
+            <button type="submit" class="primary">生成候选文案</button>
+          </form>
+          <div id="regenPreview" class="candidate-set" hidden>
+            <h3>候选文案 <small id="regenTone"></small></h3>
+            <ul id="regenList" class="candidate-lines"></ul>
+            <div class="row"><button id="regenApply" type="button" class="primary">应用到整套</button><button id="regenDismiss" type="button">不用了</button></div>
+          </div>
+          <p id="regenStatus" class="hint" role="status"></p>
+        </div>
+        <div data-panel="template" class="stack" hidden>
+          <h3>从商品照取色</h3>
+          <div id="paletteCards" class="palette-cards"></div>
+          <p id="paletteStatus" class="hint" role="status"></p>
+          <h3>套版</h3>
+          <div id="styleCards" class="style-cards" role="group" aria-label="套版">
+            <button type="button" data-style="">原版</button><button type="button" data-style="editorial">奶油画报</button><button type="button" data-style="vermilion">朱砂简报</button><button type="button" data-style="forest">森林夜场</button>
+          </div>
+          <p class="hint">套版应用到画布上选中的作品；未选中时应用到整套。</p>
+        </div>
+        <div data-panel="text" class="stack" hidden>
+          <p class="hint">点一条文字可直接改写，AI 给出两种写法供你比较。</p>
+          <ul id="textList" class="text-list"></ul>
+        </div>
+        <div data-panel="channels" class="stack" hidden>
+          <ul id="channelPanel" class="channel-panel"></ul>
+          <p id="channelStatus" class="hint" role="status"></p>
+        </div>
+        <div data-panel="export" class="stack" hidden>
+          <ul id="exportChecks" class="check-list"></ul>
+          <button id="exportAll" type="button" class="primary">打包整套 ZIP</button>
+          <p id="exportStatus" class="hint" role="status"></p>
+        </div>
+        <div data-panel="recent" class="stack" hidden><div id="recentSlot"></div></div>
+        <p id="toolEmpty" class="tool-empty" hidden>先在中间输入一句话或上传商品照，生成后可在这里调整。</p>
+      </div>
+    </aside>
+
+    <main id="main">
+      <h1 class="sr-only">Café Brief AI 创作工作台</h1>
+      <p id="notice" class="notice" role="status"></p>
+
+      <section id="intake" class="home" aria-labelledby="intakeTitle">
+        <div class="home-inner">
+          <h2 id="intakeTitle" tabindex="-1">今天上什么新品？</h2>
+          <p class="home-lead">说一句话，AI 写文案、排版并出齐各渠道物料。</p>
+          <form id="aiForm" class="ai-box">
+            <label for="aiPrompt" class="sr-only">用一句话描述新品</label>
+            <textarea id="aiPrompt" name="prompt" rows="3" maxlength="300" placeholder="周五上青梅冷萃，28 元，仅限堂食，做柜台和朋友圈两版，清爽一点"></textarea>
+            <div class="ai-box-bar">
+              <label for="photo" class="attach"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>上传商品照</label>
+              <input id="photo" class="sr-only" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="photoState">
+              <span class="attach-preview"><img id="photoPreview" alt="已上传的商品照片" width="32" height="32" hidden><small id="photoState" role="status">可拖入照片 · 不传也能出稿</small><button id="clearPhoto" class="link-button" type="button" hidden>移除</button></span>
+              <button id="aiGo" type="submit" class="primary ai-go"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>生成整套</button>
+            </div>
+          </form>
+          <div class="prompt-chips" role="group" aria-label="快捷示例">
+            <button type="button" class="chip" data-prompt="周六上桂花拿铁，26 元，堂食和外卖都上，温暖一点">桂花拿铁 · 堂食外卖</button>
+            <button type="button" class="chip" data-prompt="明天上新草莓气泡美式，24 元，仅限堂食，只做朋友圈，活泼一点">草莓气泡美式 · 只做朋友圈</button>
+            <button type="button" class="chip" data-prompt="周日上新耶加雪菲手冲，38 元，仅限堂食，做菜单和柜台，质感一点">手冲 · 菜单和柜台</button>
+          </div>
+          <div class="row home-actions"><button id="sample" type="button">试用拿铁示例</button><button id="textSample" type="button">直接使用文字示例</button><button id="resumeFirstDraft" type="button" hidden>继续补充商品信息</button></div>
+        </div>
+      </section>
+
+      <section id="recent" class="recent" aria-labelledby="recentTitle" hidden>
+        <div class="recent-head"><h2 id="recentTitle" tabindex="-1">最近草稿</h2><small>仅保存在本机浏览器，最多保留 6 份</small></div>
+        <ul id="recentList" class="recent-list"></ul>
+        <p id="recentEmpty" class="recent-empty" hidden>暂无草稿</p>
+        <div class="recent-status"><span id="recentStatus" role="status"></span><button id="undoDraftDelete" type="button" hidden>撤销</button></div>
+      </section>
+
+      <section id="facts" class="facts" aria-labelledby="factsTitle" hidden>
+        <form id="factsForm" class="facts-card stack" method="post" aria-labelledby="factsTitle">
+          <div class="facts-head">
+            <div id="firstDraft" class="first-draft"></div>
+            <div><p class="ai-says"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 还差一点信息</p><h2 id="factsTitle" tabindex="-1">这款商品叫什么？</h2><p id="extractionSource"></p></div>
+          </div>
           <div class="fact-grid">
-            <div class="field"><label for="brand">店名</label><input id="brand" maxlength="24" autocomplete="organization"></div>
-            <div class="field"><label for="selling">已确认卖点</label><input id="selling" maxlength="48" placeholder="例如 桂花香与轻盈茶感"></div>
-            <div class="field"><label for="offer">已确认促销</label><input id="offer" maxlength="48"></div>
+            <div class="field"><label for="name">商品名</label><input id="name" name="name" maxlength="36" aria-describedby="source-name" required><small id="source-name"></small></div>
+            <div class="field"><label for="price">售价（元）</label><input type="text" inputmode="decimal" pattern="[0-9]{1,4}(\.[0-9]{1,2})?" id="price" name="price" aria-describedby="source-price" required><small id="source-price"></small></div>
+            <div class="field"><label for="day">上新时间</label><input id="day" name="day" maxlength="32" placeholder="例如 周五，或 11月28日起" aria-describedby="source-day" required><small id="source-day"></small></div>
+            <fieldset class="field" aria-describedby="source-scope">
+              <legend>销售范围</legend><div class="row pick"><label><input type="radio" name="scope" value="store" required>仅限堂食</label><label><input type="radio" name="scope" value="all">堂食和外卖</label></div><small id="source-scope"></small>
+            </fieldset>
           </div>
-        </details>
-        <div class="row"><button type="submit" class="primary">生成整套图文</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回素材</button></div>
-      </form>
-    </section>
-
-    <section id="review" aria-labelledby="reviewTitle" hidden>
-      <div class="review-heading">
-        <div><h2 id="reviewTitle" tabindex="-1">创作画布</h2><p id="planSource"></p></div>
-        <div class="row review-tools">
-          <button id="returnWorkspace" type="button">返回工作室</button>
-          <button id="editProduct" type="button">编辑商品</button>
-          <label for="replacement" class="file-button">更换照片</label><input id="replacement" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
-          <a href="#actions" class="jump">修改 / 打包</a>
-        </div>
-      </div>
-      <div class="layout review-layout">
-        <div class="gallery">
-          <div class="canvas-toolbar">
-            <div class="row canvas-mode" id="canvasMode"><button id="canvasOverview" type="button" aria-pressed="true">全景</button><button id="canvasFocus" type="button" aria-pressed="false">聚焦</button></div>
-            <div class="row canvas-zoom" id="canvasZoom">
-              <button id="zoomOut" type="button" aria-label="缩小">−</button><output id="zoomValue" aria-label="缩放比例">100%</output><button id="zoomIn" type="button" aria-label="放大">＋</button><button id="fitCanvas" type="button">适配</button>
+          <details class="optional-facts"><summary>补充店名、卖点或促销</summary>
+            <div class="fact-grid">
+              <div class="field"><label for="brand">店名</label><input id="brand" maxlength="24" autocomplete="organization"></div>
+              <div class="field"><label for="selling">已确认卖点</label><input id="selling" maxlength="48" placeholder="例如 桂花香与轻盈茶感"></div>
+              <div class="field"><label for="offer">已确认促销</label><input id="offer" maxlength="48"></div>
             </div>
-            <div id="focusControls" class="row" hidden>
-              <span id="focusCount" class="focus-count"></span>
-              <button id="closeDetail" type="button">返回画布</button>
-              <button id="jumpToWork" type="button">编辑作品</button>
-              <button id="deleteWork" type="button">删除作品</button>
+          </details>
+          <p id="factPlan" class="hint"></p>
+          <div class="row"><button type="submit" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>继续生成</button><button type="submit" id="template">用模板制作</button><button type="button" id="back">返回首页</button></div>
+        </form>
+      </section>
+
+      <section id="review" class="review" aria-labelledby="reviewTitle" hidden>
+        <div class="review-bar">
+          <div class="review-title"><h2 id="reviewTitle" tabindex="-1">创作画布</h2><p id="planSource"></p></div>
+          <div class="row canvas-mode" id="canvasMode"><button id="canvasOverview" type="button" aria-pressed="true">全景</button><button id="canvasFocus" type="button" aria-pressed="false">聚焦</button></div>
+          <div class="row canvas-zoom" id="canvasZoom">
+            <button id="zoomOut" type="button" aria-label="缩小">−</button><output id="zoomValue" aria-label="缩放比例">100%</output><button id="zoomIn" type="button" aria-label="放大">＋</button><button id="fitCanvas" type="button">适配</button>
+          </div>
+          <div id="focusControls" class="row" hidden>
+            <span id="focusCount" class="focus-count"></span>
+            <button id="closeDetail" type="button">返回全景</button>
+            <button id="jumpToWork" type="button">编辑作品</button>
+            <button id="deleteWork" type="button">删除作品</button>
+          </div>
+          <div class="row review-tools"><button id="returnWorkspace" type="button">回首页</button><a href="#actions" class="jump">AI 面板</a></div>
+        </div>
+        <div class="review-body">
+          <div class="gallery">
+            <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="可平移缩放的物料画布" aria-describedby="canvasHelp">
+              <div id="board" class="board" aria-label="渠道物料"></div>
+            </div>
+            <div id="focusView" class="focus-view" aria-label="当前物料预览，可左右滑动切换" hidden>
+              <div id="previewSlot"></div>
+            </div>
+            <div class="channel-bar">
+              <button id="previousChannel" class="channel-arrow" type="button" aria-label="上一件">‹</button>
+              <div class="channel-list" id="channelList" aria-label="按渠道切换"></div>
+              <button id="nextChannel" class="channel-arrow" type="button" aria-label="下一件">›</button>
+            </div>
+            <div class="canvas-foot">
+              <span id="canvasRecovery" hidden><button id="undoDelete" type="button">撤销删除</button></span>
+              <p id="canvasHelp" class="canvas-help">拖动空白平移 · 滚轮缩放 · 拖动卡片排列 · 点击聚焦</p>
+              <p id="excluded" class="skip-note" hidden>仅限堂食 · 跳过外卖主图</p>
             </div>
           </div>
-          <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="可平移缩放的物料画布" aria-describedby="canvasHelp">
-            <div id="board" class="board" aria-label="渠道物料"></div>
-          </div>
-          <div id="focusView" class="focus-view" aria-label="当前物料预览，可左右滑动切换" hidden>
-            <div id="previewSlot"></div>
-          </div>
-          <div class="channel-bar">
-            <button id="previousChannel" class="channel-arrow" type="button" aria-label="上一件">‹</button>
-            <div class="channel-list" id="channelList" aria-label="按渠道切换"></div>
-            <button id="nextChannel" class="channel-arrow" type="button" aria-label="下一件">›</button>
-          </div>
-          <div class="row" id="canvasRecovery" hidden><button id="undoDelete" type="button">撤销删除</button></div>
-          <p id="canvasHelp" class="canvas-help">拖动空白平移 · 滚轮缩放 · 拖动卡片排列 · 点击聚焦</p>
-          <p id="excluded" class="skip-note" hidden>仅限堂食 · 跳过外卖主图</p>
-        </div>
-        <aside class="panel actions" id="actions">
-          <div id="projectActions" class="stack">
-          <div class="row action-heading"><h3>商品与版本</h3><span class="label" id="version"></span></div>
-          <dl id="factSummary"></dl>
-          <form id="change" class="stack" method="post" action="/api/launch/change" aria-labelledby="changeTitle">
-            <h3 id="changeTitle">修改整套物料</h3>
-            <div class="field"><label for="command">修改要求</label><textarea id="command" name="command" rows="2" maxlength="240" required placeholder="改成 26 元，周六再上"></textarea></div>
-            <button type="submit">查看影响</button>
-          </form>
-          <div id="diff" class="diff stack" hidden>
-            <h3>预计变更</h3><ul id="diffList"></ul><p id="diffImpact"></p>
-            <div class="row"><button id="apply" type="button" class="primary">应用到整套</button><button id="dismiss" type="button">取消</button></div>
-          </div>
-          <div id="conflict" class="conflict" hidden></div>
 
-          <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button><button id="writeCopy" type="button">重写默认文案</button></div>
-          </div>
-          <section id="sourceDetail" class="stack" aria-labelledby="sourceTitle" hidden>
-            <div class="row action-heading"><h3 id="sourceTitle" tabindex="-1">商品原片</h3></div>
-            <p id="sourceFilename"></p>
-          </section>
-          <section id="detail" aria-labelledby="detailTitle" hidden>
-            <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
-              <div class="row action-heading"><h3 id="detailTitle" tabindex="-1"></h3></div>
-              <p id="detailFacts"></p>
-              <p id="copySource"></p>
-              <div class="row work-tools" role="group" aria-label="当前作品操作">
-                <button id="duplicate" type="button">复制作品</button><button id="raiseWork" type="button">置于顶层</button>
-                <button id="lowerWork" type="button">置于底层</button>
+          <aside class="ai-panel" id="actions" aria-label="AI 与属性面板">
+            <section id="aiRun" class="ai-run" aria-labelledby="aiRunTitle" hidden>
+              <div class="panel-head"><h3 id="aiRunTitle"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span id="aiRunLabel">AI 正在生成</span></h3><small id="aiRunTime"></small></div>
+              <ol id="aiSteps" class="ai-steps">
+                <li data-step="detect" data-state="pending"><span>识别商品</span><small></small></li>
+                <li data-step="write" data-state="pending"><span>写文案</span><small></small></li>
+                <li data-step="layout" data-state="pending"><span>排版</span><small></small></li>
+                <li data-step="render" data-state="pending"><span>出图</span><small></small></li>
+              </ol>
+              <div id="aiChips" class="fact-chips"></div>
+              <ul id="aiStream" class="ai-stream" aria-live="off"></ul>
+              <div id="aiFallback" class="ai-fallback" hidden>
+                <p>AI 文案暂不可用，照片和版式已保留</p>
+                <div class="row"><button id="writeOwn" type="button">自己写标题</button><button id="retryCopy" type="button" class="primary">重试文案</button></div>
               </div>
-              <details class="art-tools"><summary>换版与图片设置</summary>
-                <div class="field"><label for="artStyle">套版</label><select id="artStyle"><option value="">原版</option><option value="editorial">奶油画报</option><option value="vermilion">朱砂简报</option><option value="forest">森林夜场</option></select></div>
-                <div class="field"><label for="artScene">场景光色</label><select id="artScene"><option value="">商品柔光</option><option value="amber">暖窗光</option><option value="stone">冷石灰</option></select></div>
-                <label class="row"><input id="artCover" type="checkbox">铺满裁切</label>
-                <div class="row"><button id="peekPhoto" type="button" aria-pressed="false">对照原片</button><button id="phonePreview" type="button" hidden>外卖顾客视角</button></div>
-              </details>
-              <p id="detailConflict" class="conflict" role="status" hidden></p>
-              <div class="field"><label for="artTitle">画面标题</label><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">标题会写入预览和导出的 JPG。</small></div>
-              <div class="field"><label for="copy">发布文案</label><textarea id="copy" name="copy" rows="5" maxlength="280" required></textarea></div>
-              <p id="detailStatus" class="notice" role="status"></p>
-              <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button><button id="downloadJpeg" type="button">单张 JPG</button></div>
-            </form>
-          </section>
-          <p id="reviewNotice" class="notice" role="status"></p>
-        </aside>
-      </div>
-    </section>
-  </main>
+              <div id="aiSuggest" class="ai-suggest" hidden><button id="openPalette" type="button">试试照片配色</button><button id="openChannels" type="button">查看渠道适配</button></div>
+            </section>
+
+            <section id="factCheck" class="fact-check" aria-labelledby="factCheckTitle" hidden>
+              <div class="panel-head"><h3 id="factCheckTitle">价格与日期核对</h3><small>确认后才能导出</small></div>
+              <ul id="factCheckList" class="check-rows"></ul>
+              <button id="confirmAll" type="button" class="primary">全部确认</button>
+            </section>
+
+            <div id="projectActions" class="stack panel-section">
+              <div class="panel-head"><h3>商品与版本</h3><span class="tag" id="version"></span></div>
+              <dl id="factSummary" class="fact-summary"></dl>
+              <form id="change" class="stack" method="post" aria-labelledby="changeTitle">
+                <h3 id="changeTitle">修改整套物料</h3>
+                <div class="field"><label for="command" class="sr-only">修改要求</label><textarea id="command" name="command" rows="2" maxlength="240" required placeholder="改成 26 元，周六再上"></textarea></div>
+                <button type="submit">查看影响</button>
+              </form>
+              <div id="diff" class="diff stack" hidden>
+                <h3>预计变更</h3><ul id="diffList"></ul><p id="diffImpact"></p>
+                <div class="row"><button id="apply" type="button" class="primary">应用到整套</button><button id="dismiss" type="button">取消</button></div>
+              </div>
+              <div id="conflict" class="conflict" hidden></div>
+              <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button><button id="writeCopy" type="button">重写默认文案</button></div>
+            </div>
+
+            <section id="sourceDetail" class="stack panel-section" aria-labelledby="sourceTitle" hidden>
+              <div class="panel-head"><h3 id="sourceTitle" tabindex="-1">商品原片</h3></div>
+              <p id="sourceFilename"></p>
+            </section>
+
+            <section id="detail" class="panel-section" aria-labelledby="detailTitle" hidden>
+              <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
+                <div class="panel-head"><h3 id="detailTitle" tabindex="-1"></h3><span id="copySource" class="tag"></span></div>
+                <p id="detailFacts" class="hint"></p>
+                <p id="detailConflict" class="conflict" role="status" hidden></p>
+                <div class="field rewrite-field"><div class="label-row"><label for="artTitle">画面标题</label><button type="button" class="link-button" data-rewrite="title"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">选中文字可让 AI 改写，标题会写入预览和导出图。</small></div>
+                <div class="field rewrite-field"><div class="label-row"><label for="copy">发布文案</label><button type="button" class="link-button" data-rewrite="body"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><textarea id="copy" name="copy" rows="4" maxlength="280" required></textarea></div>
+                <button id="rewriteFloat" class="rewrite-float" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>改写</button>
+
+                <section id="rewrite" class="rewrite" aria-labelledby="rewriteTitle" hidden>
+                  <div class="panel-head"><h4 id="rewriteTitle">比较两种写法</h4><button id="closeRewrite" class="icon-button" type="button" aria-label="关闭改写"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+                  <p class="rewrite-source">原句：<q id="rewriteSource"></q></p>
+                  <p id="rewriteStale" class="conflict" role="status" hidden>标题已更新，请与当前版本对比后再应用</p>
+                  <div id="rewriteOptions" class="rewrite-options"></div>
+                  <div class="chip-row" role="group" aria-label="调整候选"><button type="button" class="chip" data-mode="shorter">更短</button><button type="button" class="chip" data-mode="livelier">更活泼</button><button type="button" class="chip" data-mode="again">换一批</button></div>
+                </section>
+                <div id="rewriteUndoRow" class="undo-row" hidden><span id="rewriteDone" role="status"></span><button id="rewriteUndo" type="button">撤销</button></div>
+
+                <div class="row work-tools" role="group" aria-label="当前作品操作">
+                  <button id="duplicate" type="button">复制</button><button id="raiseWork" type="button">置顶</button><button id="lowerWork" type="button">置底</button>
+                </div>
+                <details class="art-tools"><summary>版式与图片设置</summary>
+                  <div class="field"><label for="artStyle">套版</label><select id="artStyle"><option value="">原版</option><option value="editorial">奶油画报</option><option value="vermilion">朱砂简报</option><option value="forest">森林夜场</option></select></div>
+                  <div class="field"><label for="artScene">场景光色</label><select id="artScene"><option value="">商品柔光</option><option value="amber">暖窗光</option><option value="stone">冷石灰</option></select></div>
+                  <label class="row check"><input id="artCover" type="checkbox">铺满裁切</label>
+                  <div class="row"><button id="peekPhoto" type="button" aria-pressed="false">对照原片</button><button id="phonePreview" type="button" hidden>外卖顾客视角</button></div>
+                </details>
+                <p id="detailStatus" class="notice" role="status"></p>
+                <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button><button id="downloadJpeg" type="button">单张 JPG</button></div>
+              </form>
+            </section>
+            <p id="reviewNotice" class="notice" role="status"></p>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+  <p id="announcer" class="sr-only" role="status" aria-live="polite"></p>
 
   <dialog id="phoneDialog" aria-labelledby="phoneTitle"><form method="dialog" class="stack">
-    <div class="row action-heading"><h2 id="phoneTitle">外卖顾客视角</h2><button>关闭</button></div>
+    <div class="panel-head"><h2 id="phoneTitle">外卖顾客视角</h2><button>关闭</button></div>
     <div class="delivery-preview"><div id="phoneArt"></div><div><strong id="phoneProduct"></strong><p id="phonePrice"></p></div></div>
   </form></dialog>
   <dialog id="productDialog" aria-labelledby="productTitle">
     <form id="productForm" class="stack">
-      <h2 id="productTitle">编辑商品</h2>
+      <h2 id="productTitle">编辑商品信息</h2>
       <div class="fact-grid">
         <div class="field"><label for="editName">商品名</label><input id="editName" maxlength="36" required autofocus></div>
         <div class="field"><label for="editPrice">售价（元）</label><input id="editPrice" inputmode="decimal" pattern="[0-9]{1,4}(\.[0-9]{1,2})?" required></div>
@@ -193,7 +295,7 @@
         <div class="field"><label for="editSelling">已确认卖点（选填）</label><input id="editSelling" maxlength="48"></div>
       </div>
       <p id="productError" class="notice" role="status"></p>
-      <div class="row"><button class="primary" type="submit">保存商品资料</button><button id="cancelProduct" type="button">取消</button></div>
+      <div class="row"><button class="primary" type="submit">保存并确认</button><button id="cancelProduct" type="button">取消</button></div>
     </form>
   </dialog>
 </body>
