@@ -1,6 +1,6 @@
 // 浏览器本地 AI 引擎：一句话解析、分语气文案、选区改写、商品照取色、标题溢出检测。
 // 纯函数，不依赖 DOM，可在 Node 中单独测试；GitHub Pages 无后端时全部在本机完成。
-import { money, noteAmbiguities, ruleFacts, scopeLabel, validatedCopy } from './workflow.mjs?v=202611243';
+import { money, noteAmbiguities, ruleFacts, scopeLabel, validatedCopy } from './workflow.mjs?v=202611261';
 
 export const channelWords = {
   menu: /菜单|点单/,

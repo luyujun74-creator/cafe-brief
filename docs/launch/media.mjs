@@ -1,5 +1,5 @@
-import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs?v=202611243';
-import { makeZip } from './zip.mjs?v=202611243';
+import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs?v=202611261';
+import { makeZip } from './zip.mjs?v=202611261';
 
 export const getBlob = (canvas, quality) => new Promise((resolve, reject) => {
   canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('图片编码失败。')), 'image/jpeg', quality);
@@ -52,6 +52,17 @@ const font = '"PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
 
 function photoBox(ctx, picture, x, y, w, h, unit, full) {
   const blur = unit * .029;
+  if (picture?.isScene) {
+    // 换背景后的场景图：按照片框比例现场合成，铺满照片框。
+    const density = Math.min(2, Math.max(.25, ctx.getTransform().a));
+    ctx.save();
+    ctx.shadowColor = '#16110e65';
+    ctx.shadowBlur = unit * .023;
+    ctx.shadowOffsetY = unit * .012;
+    ctx.drawImage(picture.render(w * density, h * density), x, y, w, h);
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.fillStyle = '#514338';
   ctx.shadowColor = '#16110e65';
@@ -180,11 +191,12 @@ export function art(channel, facts, picture, { thumbnail = false, branding, titl
   return canvas;
 }
 
-export async function packageAssets(draft, selected, photo) {
+export async function packageAssets(draft, selected, photo, sceneNote = '') {
   const encode = value => new TextEncoder().encode(value.trimEnd().replace(/\r\n?|\n/g, '\n') + '\n');
   const files = [];
   for (const c of selected) {
-    const jpeg = await getBlob(art(c, draft.facts, photo, { branding: draft.branding, title: artworkTitle(draft, c), settings: draft.artSettings?.[c.id] }), .91);
+    const picture = typeof photo === 'function' ? photo(c) : photo;
+    const jpeg = await getBlob(art(c, draft.facts, picture, { branding: draft.branding, title: artworkTitle(draft, c), settings: draft.artSettings?.[c.id] }), .91);
     files.push(
       { name: `${c.title}/成品.jpg`, data: new Uint8Array(await jpeg.arrayBuffer()) },
       { name: `${c.title}/渠道文案.txt`, data: encode(channelCopy(draft, c)) },
@@ -196,7 +208,7 @@ export async function packageAssets(draft, selected, photo) {
     `范围：${scopeLabel(facts.scope)}`, `版本：v${revision}`, `草稿编号：${productId}`, '',
     ...selected.map(c => `${c.title} · ${c.width} × ${c.height} 像素 · ${c.use}${draft.edits[c.id] ? ' · 商户已核对文案' : ''}`),
     ...(facts.scope === 'store' ? ['跳过外卖主图：仅限堂食。'] : []),
-    '图片使用商户商品照本地排版。', '请按实际发布平台要求核对成品。',
+    sceneNote || '图片使用商户商品照本地排版。', '请按实际发布平台要求核对成品。',
   ];
   files.push({ name: '物料清单.txt', data: encode(manifest.join('\n')) });
   return makeZip(files);

@@ -7,9 +7,9 @@
   <title>Café Brief · AI 创作工作台</title>
   <link rel="icon" href="../assets/favicon.svg">
   <script>try { document.documentElement.dataset.rail = localStorage.getItem('cafe-brief:rail') === 'collapsed' ? 'collapsed' : 'expanded'; } catch {}</script>
-  <link rel="stylesheet" href="../tokens.css?v=202611243">
-  <link rel="stylesheet" href="../launch/workbench.css?v=202611243">
-  <script type="module" src="../launch/app.mjs?v=202611243"></script>
+  <link rel="stylesheet" href="../tokens.css?v=202611261">
+  <link rel="stylesheet" href="../launch/workbench.css?v=202611261">
+  <script type="module" src="../launch/app.mjs?v=202611261"></script>
 </head>
 <body data-stage="intake">
   <svg class="sprite" aria-hidden="true" focusable="false">
@@ -22,11 +22,19 @@
     <symbol id="i-history" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.5H8M12 8v4.5l3 1.8"/></symbol>
     <symbol id="i-fold" viewBox="0 0 24 24"><path d="M4 4.5h16v15H4zM9.5 4.5v15M16 9.5L13.5 12l2.5 2.5"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-scene" viewBox="0 0 24 24"><path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5zM4 15l4.5-4 3.5 3 2.5-2L20 16.5M10 19v-4.5h4V19M15.5 8.6a1 1 0 1 0 0 .1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M5 19h3.5L18.2 9.3a2 2 0 0 0-2.8-2.8L5.7 16.2zM14 8l2.8 2.8"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.5 18.5h9.8a3.7 3.7 0 0 0 .4-7.4 5.5 5.5 0 0 0-10.6-1A4.3 4.3 0 0 0 7.5 18.5z"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 11v5.5M12 7.6v.2"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M7 14.5l5-5 5 5"/></symbol>
+    <symbol id="i-cut" viewBox="0 0 24 24"><path d="M8.5 9.5a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zM10.6 8.6L20 18M10.6 15.4L20 6"/></symbol>
   </svg>
 
   <header class="top">
     <a class="brand" href="./" aria-label="Café Brief 首页"><img src="../assets/favicon.svg" width="24" height="24" alt=""><strong>Café Brief</strong><span>AI 创作工作台</span></a>
     <span class="ai-status" id="modelStatus" role="status" data-ready="local"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 就绪</span>
+    <span class="cloud-status" id="cloudStatus" role="status" hidden><svg class="icon" aria-hidden="true"><use href="#i-cloud"/></svg><span id="cloudText">豆包生图</span><small class="cloud-hint" id="cloudHint">经 Cloudflare 云接口 · 需非中国大陆网络</small></span>
     <span id="saved" class="saved" role="status"></span>
   </header>
 
@@ -39,6 +47,7 @@
         <li><button class="rail-item" type="button" data-tool="upload" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span class="rail-label">上传/商品</span></button></li>
         <li><button class="rail-item" type="button" data-tool="ai" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span class="rail-label">AI 生成</span></button></li>
         <li><button class="rail-item" type="button" data-tool="template" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="rail-label">模板版式</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="scene" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-scene"/></svg><span class="rail-label">换背景</span></button></li>
         <li><button class="rail-item" type="button" data-tool="text" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span class="rail-label">文字</span></button></li>
         <li><button class="rail-item" type="button" data-tool="channels" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-channels"/></svg><span class="rail-label">渠道适配</span></button></li>
         <li><button class="rail-item" type="button" data-tool="export" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-export"/></svg><span class="rail-label">导出</span></button></li>
@@ -70,6 +79,13 @@
             <div class="row"><button id="regenApply" type="button" class="primary">应用到整套</button><button id="regenDismiss" type="button">不用了</button></div>
           </div>
           <p id="regenStatus" class="hint" role="status"></p>
+          <section class="ai-scene-card stack" aria-labelledby="aiSceneCardTitle">
+            <div class="panel-head"><h3 id="aiSceneCardTitle"><svg class="icon" aria-hidden="true"><use href="#i-scene"/></svg>AI 生成场景图</h3><span class="tag">豆包 Seedream</span></div>
+            <p class="hint">以商品照为参考，生成整张场景大片，可直接做物料或当背景。</p>
+            <div class="chip-row scene-styles" role="group" aria-label="场景风格" data-style-group="ai"></div>
+            <button id="aiSceneFromAi" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>生成场景图</button>
+            <p class="cloud-note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>在线 AI 生图经 Cloudflare 云接口，需在非中国大陆网络下使用</span></p>
+          </section>
         </div>
         <div data-panel="template" class="stack" hidden>
           <h3>从商品照取色</h3>
@@ -80,6 +96,60 @@
             <button type="button" data-style="">原版</button><button type="button" data-style="editorial">奶油画报</button><button type="button" data-style="vermilion">朱砂简报</button><button type="button" data-style="forest">森林夜场</button>
           </div>
           <p class="hint">套版应用到画布上选中的作品；未选中时应用到整套。</p>
+        </div>
+        <div data-panel="scene" class="stack scene-panel" hidden>
+          <section class="scene-step" aria-labelledby="cutTitle">
+            <h3 id="cutTitle"><span class="step-no">1</span>抠出商品</h3>
+            <div class="cutout-row">
+              <div class="cutout-preview checker"><canvas id="cutoutPreview" width="120" height="120" aria-label="透明底商品预览"></canvas></div>
+              <div class="stack cutout-side">
+                <p id="cutoutStatus" class="hint" role="status">点「抠出商品」，商品会从原片中分离出来。</p>
+                <div id="cutoutProgress" class="progress" hidden><i></i></div>
+              </div>
+            </div>
+            <div class="row"><button id="cutoutRun" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-cut"/></svg>抠出商品</button><button id="cutoutAi" type="button" hidden>AI 精细抠图</button><button id="cutoutCancel" type="button" hidden>停止</button></div>
+            <div id="brushTools" class="brush-tools" hidden>
+              <div class="seg" role="group" aria-label="修边画笔"><button type="button" data-brush="erase" aria-pressed="false">擦除</button><button type="button" data-brush="restore" aria-pressed="false">恢复</button><button type="button" data-brush="" aria-pressed="true">移动</button></div>
+              <label class="slider"><span>笔刷</span><input id="brushSize" type="range" min="6" max="80" value="28"></label>
+              <label class="slider"><span>边缘柔化</span><input id="sceneFeather" type="range" min="0" max="12" value="2"></label>
+            </div>
+          </section>
+          <section class="scene-step" aria-labelledby="bgTitle">
+            <h3 id="bgTitle"><span class="step-no">2</span>选场景背景</h3>
+            <div id="sceneGrid" class="scene-grid" role="group" aria-label="场景背景"></div>
+            <input id="sceneUpload" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
+            <div class="ai-scene stack" id="aiScene">
+              <div class="panel-head"><h4><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 生成场景（豆包 Seedream）</h4><small id="aiSceneQuota"></small></div>
+              <div class="chip-row scene-styles" role="group" aria-label="场景风格" data-style-group="scene"></div>
+              <button id="aiSceneGo" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>生成 AI 场景</button>
+              <ol id="aiSceneStages" class="ai-steps scene-stages" hidden>
+                <li data-step="prepare" data-state="pending"><span>准备参考图</span><small></small></li>
+                <li data-step="generate" data-state="pending"><span>豆包生成中</span><small></small></li>
+                <li data-step="fetch" data-state="pending"><span>取回成图</span><small></small></li>
+                <li data-step="done" data-state="pending"><span>完成</span><small></small></li>
+              </ol>
+              <button id="aiSceneCancel" type="button" hidden>取消生成</button>
+              <div id="aiSceneResult" class="ai-scene-result stack" hidden>
+                <img id="aiSceneImage" alt="豆包生成的场景图">
+                <div class="row"><button id="aiSceneWhole" type="button" class="primary">用作商品照（整图）</button><button id="aiSceneBg" type="button">当背景，叠加抠图商品</button></div>
+              </div>
+              <p id="aiSceneStatus" class="hint" role="status"></p>
+              <div id="unlockRow" class="unlock-row" hidden>
+                <label for="unlockPassword" class="sr-only">解锁密码</label><input id="unlockPassword" type="password" autocomplete="current-password" placeholder="解锁密码" maxlength="128"><button id="unlockGo" type="button">解锁</button>
+              </div>
+              <p class="cloud-note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>在线 AI 生图经 Cloudflare 云接口，需在非中国大陆网络下使用</span></p>
+            </div>
+          </section>
+          <section class="scene-step" aria-labelledby="adjustTitle">
+            <h3 id="adjustTitle"><span class="step-no">3</span>调整并应用</h3>
+            <label class="slider"><span>大小</span><input id="sceneScale" type="range" min="20" max="110" value="62"><output id="sceneScaleOut">62%</output></label>
+            <label class="slider"><span>亮度</span><input id="sceneBright" type="range" min="-40" max="40" value="0"><output id="sceneBrightOut">0</output></label>
+            <label class="slider"><span>色温</span><input id="sceneWarm" type="range" min="-50" max="50" value="0"><output id="sceneWarmOut">0</output></label>
+            <div class="row"><label class="check"><input id="sceneShadow" type="checkbox" checked>自动柔和阴影</label><button id="sceneCenter" type="button" class="link-button">商品居中</button></div>
+            <div class="row scene-apply"><button id="sceneApplyAll" type="button" class="primary">应用到全部物料</button><button id="sceneApplyOne" type="button">仅当前作品</button></div>
+            <div class="row"><button id="sceneUndo" type="button" disabled>撤销</button><button id="sceneRemove" type="button">恢复原片</button></div>
+            <p id="sceneStatus" class="hint" role="status"></p>
+          </section>
         </div>
         <div data-panel="text" class="stack" hidden>
           <p class="hint">点一条文字可直接改写，AI 给出两种写法供你比较。</p>
@@ -172,7 +242,7 @@
             <button id="jumpToWork" type="button">编辑作品</button>
             <button id="deleteWork" type="button">删除作品</button>
           </div>
-          <div class="row review-tools"><button id="returnWorkspace" type="button">回首页</button><a href="#actions" class="jump">AI 面板</a></div>
+          <div class="row review-tools"><button id="returnWorkspace" type="button">回首页</button><a href="#actions" class="jump">面板</a></div>
         </div>
         <div class="review-body">
           <div class="gallery">
@@ -181,6 +251,10 @@
             </div>
             <div id="focusView" class="focus-view" aria-label="当前物料预览，可左右滑动切换" hidden>
               <div id="previewSlot"></div>
+            </div>
+            <div id="sceneStage" class="scene-stage" hidden>
+              <canvas id="sceneCanvas" aria-label="换背景合成预览：拖动商品调整位置，滚轮缩放"></canvas>
+              <p id="sceneStageHint" class="scene-stage-hint"></p>
             </div>
             <div class="channel-bar">
               <button id="previousChannel" class="channel-arrow" type="button" aria-label="上一件">‹</button>
@@ -195,81 +269,109 @@
           </div>
 
           <aside class="ai-panel" id="actions" aria-label="AI 与属性面板">
-            <section id="aiRun" class="ai-run" aria-labelledby="aiRunTitle" hidden>
-              <div class="panel-head"><h3 id="aiRunTitle"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span id="aiRunLabel">AI 正在生成</span></h3><small id="aiRunTime"></small></div>
-              <ol id="aiSteps" class="ai-steps">
-                <li data-step="detect" data-state="pending"><span>识别商品</span><small></small></li>
-                <li data-step="write" data-state="pending"><span>写文案</span><small></small></li>
-                <li data-step="layout" data-state="pending"><span>排版</span><small></small></li>
-                <li data-step="render" data-state="pending"><span>出图</span><small></small></li>
-              </ol>
-              <div id="aiChips" class="fact-chips"></div>
-              <ul id="aiStream" class="ai-stream" aria-live="off"></ul>
-              <div id="aiFallback" class="ai-fallback" hidden>
-                <p>AI 文案暂不可用，照片和版式已保留</p>
-                <div class="row"><button id="writeOwn" type="button">自己写标题</button><button id="retryCopy" type="button" class="primary">重试文案</button></div>
+            <section id="readyCard" class="ready-card" aria-labelledby="readyTitle">
+              <button id="drawerToggle" class="drawer-toggle" type="button" aria-expanded="false" aria-controls="panelTabs"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg><span class="sr-only">展开面板</span></button>
+              <div class="ready-main">
+                <svg class="ready-ring" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18" class="ring-bg"/><circle id="readyArc" cx="22" cy="22" r="18" class="ring-fg" pathLength="100" stroke-dasharray="0 100"/></svg>
+                <span id="readyCount" class="ready-count">0/7</span>
+                <div class="ready-text"><h3 id="readyTitle">导出就绪</h3><p id="readyHint"></p></div>
               </div>
-              <div id="aiSuggest" class="ai-suggest" hidden><button id="openPalette" type="button">试试照片配色</button><button id="openChannels" type="button">查看渠道适配</button></div>
+              <ul id="readySteps" class="ready-steps"></ul>
+              <div class="ready-actions"><button id="approve" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-export"/></svg>导出整套</button><button id="readyFix" type="button" hidden>去核对</button></div>
             </section>
-
-            <section id="factCheck" class="fact-check" aria-labelledby="factCheckTitle" hidden>
-              <div class="panel-head"><h3 id="factCheckTitle">价格与日期核对</h3><small>确认后才能导出</small></div>
-              <ul id="factCheckList" class="check-rows"></ul>
-              <button id="confirmAll" type="button" class="primary">全部确认</button>
-            </section>
-
-            <div id="projectActions" class="stack panel-section">
-              <div class="panel-head"><h3>商品与版本</h3><span class="tag" id="version"></span></div>
-              <dl id="factSummary" class="fact-summary"></dl>
-              <form id="change" class="stack" method="post" aria-labelledby="changeTitle">
-                <h3 id="changeTitle">修改整套物料</h3>
-                <div class="field"><label for="command" class="sr-only">修改要求</label><textarea id="command" name="command" rows="2" maxlength="240" required placeholder="改成 26 元，周六再上"></textarea></div>
-                <button type="submit">查看影响</button>
-              </form>
-              <div id="diff" class="diff stack" hidden>
-                <h3>预计变更</h3><ul id="diffList"></ul><p id="diffImpact"></p>
-                <div class="row"><button id="apply" type="button" class="primary">应用到整套</button><button id="dismiss" type="button">取消</button></div>
-              </div>
-              <div id="conflict" class="conflict" hidden></div>
-              <div class="row review-actions"><button id="approve" type="button" class="primary">确认本版并打包</button><button id="undo" type="button" hidden>撤销整套改动</button><button id="restart" type="button">开始下一款</button><button id="writeCopy" type="button">重写默认文案</button></div>
+            <div id="panelTabs" class="panel-tabs" role="tablist" aria-label="面板">
+              <button type="button" role="tab" id="tab-assist" data-pane="assist" aria-controls="pane-assist" aria-selected="true"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 助手</button>
+              <button type="button" role="tab" id="tab-work" data-pane="work" aria-controls="pane-work" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>当前作品</button>
+              <button type="button" role="tab" id="tab-facts" data-pane="facts" aria-controls="pane-facts" aria-selected="false" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>信息核对<span id="factsBadge" class="badge" hidden></span></button>
             </div>
-
-            <section id="sourceDetail" class="stack panel-section" aria-labelledby="sourceTitle" hidden>
-              <div class="panel-head"><h3 id="sourceTitle" tabindex="-1">商品原片</h3></div>
-              <p id="sourceFilename"></p>
-            </section>
-
-            <section id="detail" class="panel-section" aria-labelledby="detailTitle" hidden>
-              <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
-                <div class="panel-head"><h3 id="detailTitle" tabindex="-1"></h3><span id="copySource" class="tag"></span></div>
-                <p id="detailFacts" class="hint"></p>
-                <p id="detailConflict" class="conflict" role="status" hidden></p>
-                <div class="field rewrite-field"><div class="label-row"><label for="artTitle">画面标题</label><button type="button" class="link-button" data-rewrite="title"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">选中文字可让 AI 改写，标题会写入预览和导出图。</small></div>
-                <div class="field rewrite-field"><div class="label-row"><label for="copy">发布文案</label><button type="button" class="link-button" data-rewrite="body"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><textarea id="copy" name="copy" rows="4" maxlength="280" required></textarea></div>
-                <button id="rewriteFloat" class="rewrite-float" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>改写</button>
-
-                <section id="rewrite" class="rewrite" aria-labelledby="rewriteTitle" hidden>
-                  <div class="panel-head"><h4 id="rewriteTitle">比较两种写法</h4><button id="closeRewrite" class="icon-button" type="button" aria-label="关闭改写"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
-                  <p class="rewrite-source">原句：<q id="rewriteSource"></q></p>
-                  <p id="rewriteStale" class="conflict" role="status" hidden>标题已更新，请与当前版本对比后再应用</p>
-                  <div id="rewriteOptions" class="rewrite-options"></div>
-                  <div class="chip-row" role="group" aria-label="调整候选"><button type="button" class="chip" data-mode="shorter">更短</button><button type="button" class="chip" data-mode="livelier">更活泼</button><button type="button" class="chip" data-mode="again">换一批</button></div>
-                </section>
-                <div id="rewriteUndoRow" class="undo-row" hidden><span id="rewriteDone" role="status"></span><button id="rewriteUndo" type="button">撤销</button></div>
-
-                <div class="row work-tools" role="group" aria-label="当前作品操作">
-                  <button id="duplicate" type="button">复制</button><button id="raiseWork" type="button">置顶</button><button id="lowerWork" type="button">置底</button>
+            <div id="pane-assist" class="pane" role="tabpanel" aria-labelledby="tab-assist">
+              <section id="aiRun" class="ai-run" aria-labelledby="aiRunTitle" hidden>
+                <div class="panel-head"><h3 id="aiRunTitle"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span id="aiRunLabel">AI 正在生成</span></h3><small id="aiRunTime"></small></div>
+                <ol id="aiSteps" class="ai-steps">
+                  <li data-step="detect" data-state="pending"><span>识别商品</span><small></small></li>
+                  <li data-step="write" data-state="pending"><span>写文案</span><small></small></li>
+                  <li data-step="layout" data-state="pending"><span>排版</span><small></small></li>
+                  <li data-step="render" data-state="pending"><span>出图</span><small></small></li>
+                </ol>
+                <div id="aiChips" class="fact-chips"></div>
+                <div id="aiStream" class="ai-stream" aria-live="off"></div>
+                <div id="aiFallback" class="ai-fallback" hidden>
+                  <p>AI 文案暂不可用，照片和版式已保留</p>
+                  <div class="row"><button id="writeOwn" type="button">自己写标题</button><button id="retryCopy" type="button" class="primary">重试文案</button></div>
                 </div>
-                <details class="art-tools"><summary>版式与图片设置</summary>
-                  <div class="field"><label for="artStyle">套版</label><select id="artStyle"><option value="">原版</option><option value="editorial">奶油画报</option><option value="vermilion">朱砂简报</option><option value="forest">森林夜场</option></select></div>
-                  <div class="field"><label for="artScene">场景光色</label><select id="artScene"><option value="">商品柔光</option><option value="amber">暖窗光</option><option value="stone">冷石灰</option></select></div>
-                  <label class="row check"><input id="artCover" type="checkbox">铺满裁切</label>
-                  <div class="row"><button id="peekPhoto" type="button" aria-pressed="false">对照原片</button><button id="phonePreview" type="button" hidden>外卖顾客视角</button></div>
-                </details>
-                <p id="detailStatus" class="notice" role="status"></p>
-                <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button><button id="downloadJpeg" type="button">单张 JPG</button></div>
-              </form>
-            </section>
+              </section>
+              <section class="quick-actions" aria-labelledby="quickTitle">
+                <h3 id="quickTitle" class="pane-title">下一步可以</h3>
+                <div id="aiSuggest" class="quick-grid">
+                  <button id="openScene" type="button"><svg class="icon" aria-hidden="true"><use href="#i-scene"/></svg><span><strong>换背景</strong><small>抠出商品 · 换场景</small></span></button>
+                  <button id="openAiScene" type="button"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span><strong>AI 场景图</strong><small>豆包 Seedream</small></span></button>
+                  <button id="openPalette" type="button"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span><strong>照片配色</strong><small>从商品照取色</small></span></button>
+                  <button id="openChannels" type="button"><svg class="icon" aria-hidden="true"><use href="#i-channels"/></svg><span><strong>渠道适配</strong><small>检查各尺寸标题</small></span></button>
+                </div>
+              </section>
+              <div id="projectActions" class="stack panel-section">
+                <form id="change" class="stack" method="post" aria-labelledby="changeTitle">
+                  <h3 id="changeTitle" class="pane-title">一句话改整套 <span class="tag" id="version"></span></h3>
+                  <div class="field"><label for="command" class="sr-only">修改要求</label><textarea id="command" name="command" rows="2" maxlength="240" required placeholder="改成 26 元，周六再上"></textarea></div>
+                  <button type="submit">查看影响</button>
+                </form>
+                <div id="diff" class="diff stack" hidden>
+                  <h3>预计变更</h3><ul id="diffList"></ul><p id="diffImpact"></p>
+                  <div class="row"><button id="apply" type="button" class="primary">应用到整套</button><button id="dismiss" type="button">取消</button></div>
+                </div>
+                <div id="conflict" class="conflict" hidden></div>
+                <div class="row review-actions"><button id="undo" type="button" hidden>撤销整套改动</button><button id="writeCopy" type="button">换个语气重写</button><button id="restart" type="button">开始下一款</button></div>
+              </div>
+            </div>
+            <div id="pane-work" class="pane" role="tabpanel" aria-labelledby="tab-work" hidden>
+              <section id="workEmpty" class="work-empty stack">
+                <p class="pane-title">在画布上点一件作品即可编辑</p>
+                <ul id="workList" class="work-list"></ul>
+              </section>
+              <section id="sourceDetail" class="stack panel-section" aria-labelledby="sourceTitle" hidden>
+                <div class="panel-head"><h3 id="sourceTitle" tabindex="-1">商品原片</h3></div>
+                <p id="sourceFilename"></p>
+              </section>
+
+              <section id="detail" class="panel-section" aria-labelledby="detailTitle" hidden>
+                <form id="editCopy" class="stack" method="post" aria-labelledby="detailTitle">
+                  <div class="panel-head"><h3 id="detailTitle" tabindex="-1"></h3><span id="copySource" class="tag"></span></div>
+                  <p id="detailFacts" class="hint"></p>
+                  <p id="detailConflict" class="conflict" role="status" hidden></p>
+                  <div class="field rewrite-field"><div class="label-row"><label for="artTitle">画面标题</label><button type="button" class="link-button" data-rewrite="title"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><input id="artTitle" maxlength="36" placeholder="默认使用商品名" aria-describedby="artTitleHint"><small id="artTitleHint">选中文字可让 AI 改写，标题会写入预览和导出图。</small></div>
+                  <div class="field rewrite-field"><div class="label-row"><label for="copy">发布文案</label><button type="button" class="link-button" data-rewrite="body"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 改写</button></div><textarea id="copy" name="copy" rows="4" maxlength="280" required></textarea></div>
+                  <button id="rewriteFloat" class="rewrite-float" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>改写</button>
+
+                  <section id="rewrite" class="rewrite" aria-labelledby="rewriteTitle" hidden>
+                    <div class="panel-head"><h4 id="rewriteTitle">比较两种写法</h4><button id="closeRewrite" class="icon-button" type="button" aria-label="关闭改写"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+                    <p class="rewrite-source">原句：<q id="rewriteSource"></q></p>
+                    <p id="rewriteStale" class="conflict" role="status" hidden>标题已更新，请与当前版本对比后再应用</p>
+                    <div id="rewriteOptions" class="rewrite-options"></div>
+                    <div class="chip-row" role="group" aria-label="调整候选"><button type="button" class="chip" data-mode="shorter">更短</button><button type="button" class="chip" data-mode="livelier">更活泼</button><button type="button" class="chip" data-mode="again">换一批</button></div>
+                  </section>
+                  <div id="rewriteUndoRow" class="undo-row" hidden><span id="rewriteDone" role="status"></span><button id="rewriteUndo" type="button">撤销</button></div>
+
+                  <div class="row work-tools" role="group" aria-label="当前作品操作">
+                    <button id="duplicate" type="button">复制</button><button id="raiseWork" type="button">置顶</button><button id="lowerWork" type="button">置底</button>
+                  </div>
+                  <details class="art-tools"><summary>版式与图片设置</summary>
+                    <div class="field"><label for="artStyle">套版</label><select id="artStyle"><option value="">原版</option><option value="editorial">奶油画报</option><option value="vermilion">朱砂简报</option><option value="forest">森林夜场</option></select></div>
+                    <div class="field"><label for="artScene">场景光色</label><select id="artScene"><option value="">商品柔光</option><option value="amber">暖窗光</option><option value="stone">冷石灰</option></select></div>
+                    <label class="row check"><input id="artCover" type="checkbox">铺满裁切</label>
+                    <div class="row"><button id="peekPhoto" type="button" aria-pressed="false">对照原片</button><button id="phonePreview" type="button" hidden>外卖顾客视角</button></div>
+                  </details>
+                  <p id="detailStatus" class="notice" role="status"></p>
+                  <div class="row"><button type="submit" class="primary">保存文案</button><button id="resetCopy" type="button">恢复默认</button><button id="downloadOne" type="button">下载本件 ZIP</button><button id="downloadJpeg" type="button">单张 JPG</button></div>
+                </form>
+              </section>
+            </div>
+            <div id="pane-facts" class="pane" role="tabpanel" aria-labelledby="tab-facts" hidden>
+              <section id="factCheck" class="fact-check" aria-labelledby="factCheckTitle">
+                <div class="panel-head"><h3 id="factCheckTitle" class="pane-title">商品信息核对</h3><small id="factCheckHint">售价、日期确认后才能导出</small></div>
+                <dl id="factCheckList" class="kv-rows"></dl>
+                <div class="row"><button id="confirmAll" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>全部确认</button><button id="editAllFacts" type="button">编辑全部信息</button></div>
+              </section>
+            </div>
             <p id="reviewNotice" class="notice" role="status"></p>
           </aside>
         </div>

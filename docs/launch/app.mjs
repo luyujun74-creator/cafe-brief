@@ -1,16 +1,17 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
-} from './workflow.mjs?v=202611243';
-import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611243';
-import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611243';
-import { mountCanvas } from './canvas-board.mjs?v=202611243';
-import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611243';
-import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611243';
+} from './workflow.mjs?v=202611261';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611261';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611261';
+import { mountCanvas } from './canvas-board.mjs?v=202611261';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611261';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611261';
 import {
   channelNames, fallbackPalette, firstQuestion, paletteFromPixels, parseInstruction, rewriteCandidates, titleLimit, titleOverflow, toneCopy, tones,
-} from './ai-engine.mjs?v=202611243';
-import { illustrationFile } from './illustration.mjs?v=202611243';
+} from './ai-engine.mjs?v=202611261';
+import { illustrationFile } from './illustration.mjs?v=202611261';
+import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611261';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -194,7 +195,8 @@ $('clearPhoto').addEventListener('click', async () => {
 
 async function acceptPhoto(file, note, illustrated = false) {
   const photo = await shrinkPhoto(file);
-  persist({ ...draft, photo, photoName: file.name, illustrated, note: note ?? draft.note, paletteSuggest: null });
+  persist({ ...draft, photo, photoName: file.name, illustrated, note: note ?? draft.note, paletteSuggest: null, scene: null });
+  scenePic = null;
   if (note != null) $('aiPrompt').value = note;
   await showPhoto();
   notice('');
@@ -280,6 +282,7 @@ async function timedStep(id, work, minimum = 160) {
   return result;
 }
 
+let chipPlan = null;
 function factChips(facts, plan, pendingChecks) {
   const wanted = plan.channels?.length ? plan.channels.map(id => channelNames[id]).join('、') : '全部渠道';
   const rows = [
@@ -349,6 +352,7 @@ async function runPipeline(facts, plan, pendingChecks, { template = false } = {}
   setBusy(true);
   try {
     await timedStep('detect', async () => {
+      chipPlan = plan;
       $('aiChips').replaceChildren(...factChips(facts, plan, pendingChecks));
       return { detail: draft.illustrated ? '示意插画' : '已读取照片' };
     });
@@ -505,44 +509,169 @@ $('retryCopy').addEventListener('click', async () => {
 });
 $('openPalette').addEventListener('click', () => openToolPanel('template'));
 $('openChannels').addEventListener('click', () => openToolPanel('channels'));
+$('openScene').addEventListener('click', () => openToolPanel('scene'));
+$('openAiScene').addEventListener('click', () => {
+  openToolPanel('scene');
+  requestAnimationFrame(() => $('aiScene').scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' }));
+});
+
+// ———— 右侧面板：导出就绪卡 + 三个标签（AI 助手 / 当前作品 / 信息核对）————
+const panes = ['assist', 'work', 'facts'];
+let pane = 'assist';
+function selectPane(name, focus = false) {
+  pane = panes.includes(name) ? name : 'assist';
+  for (const tab of $('panelTabs').querySelectorAll('[role="tab"]')) {
+    const on = tab.dataset.pane === pane;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+    if (on && focus) tab.focus();
+  }
+  for (const id of panes) $('pane-' + id).hidden = id !== pane;
+}
+for (const tab of $('panelTabs').querySelectorAll('[role="tab"]')) tab.addEventListener('click', () => {
+  selectPane(tab.dataset.pane);
+  openDrawer(true);
+});
+$('panelTabs').addEventListener('keydown', event => {
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+  const index = panes.indexOf(pane);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? panes.length - 1 : step ? (index + step + panes.length) % panes.length : -1;
+  if (next < 0) return;
+  event.preventDefault();
+  selectPane(panes[next], true);
+});
+// 手机：右侧面板变成底部抽屉，收起时只露导出就绪卡。
+function openDrawer(open) {
+  const panel = $('actions');
+  panel.dataset.drawer = open ? 'open' : 'closed';
+  $('drawerToggle').setAttribute('aria-expanded', String(open));
+  $('drawerToggle').querySelector('.sr-only').textContent = open ? '收起面板' : '展开面板';
+}
+openDrawer(false);
+$('drawerToggle').addEventListener('click', () => openDrawer($('actions').dataset.drawer !== 'open'));
+
+function readySteps() {
+  const conflicts = pending();
+  const unsaved = currentWorks().filter(c => c.id in buffers());
+  return [
+    { id: 'photo', label: '商品照片', done: Boolean(draft.photo) },
+    { id: 'copy', label: '文案与版式', done: draft.revision > 0 && currentWorks().length > 0 },
+    { id: 'facts', label: '商品信息齐全', done: Object.values(draft.facts).every(Boolean) },
+    { id: 'price', label: '售价已确认', done: !unconfirmed().includes('price'), fact: true },
+    { id: 'day', label: '上新日期已确认', done: !unconfirmed().includes('day'), fact: true },
+    { id: 'scope', label: '销售范围已确认', done: !unconfirmed().includes('scope'), fact: true },
+    { id: 'edits', label: '手改文案已保存', done: !conflicts.length && !unsaved.length && !draft.proposal },
+  ];
+}
+function renderReady() {
+  const steps = readySteps();
+  const left = steps.filter(step => !step.done);
+  const done = steps.length - left.length;
+  $('readyArc').setAttribute('stroke-dasharray', `${Math.round(done / steps.length * 100)} 100`);
+  $('readyCount').textContent = `${done}/${steps.length}`;
+  $('readyCard').dataset.state = left.length ? 'todo' : 'ready';
+  const facts = left.filter(step => step.fact).length;
+  $('readyHint').textContent = !left.length
+    ? `全部就绪 · ${currentWorks().length} 件物料可导出`
+    : left.length === facts ? `还差 ${facts} 项确认即可导出` : `还差 ${left.length} 项：${left.map(step => step.label).join('、')}`;
+  $('readySteps').replaceChildren(...steps.map(step => {
+    const item = document.createElement('li');
+    item.dataset.done = String(step.done);
+    item.textContent = step.label;
+    return item;
+  }));
+  $('readyFix').hidden = !facts;
+  $('factsBadge').hidden = !unconfirmed().length;
+  $('factsBadge').textContent = String(unconfirmed().length);
+}
+$('readyFix').addEventListener('click', () => {
+  selectPane('facts');
+  openDrawer(true);
+  $('factCheckList').querySelector('button')?.focus({ preventScroll: true });
+});
+
+function renderWorkList() {
+  $('workEmpty').hidden = Boolean(activeChannel);
+  $('workList').replaceChildren(...canvasItems().map(item => {
+    const row = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    const name = document.createElement('strong');
+    name.textContent = item.title;
+    const meta = document.createElement('small');
+    meta.textContent = item.id === 'source' ? '上传照片' : draft.edits[item.id]?.pending ? '待核对手改文案' : `${item.width} × ${item.height}${sceneApplies(item) ? ' · 已换背景' : ''}`;
+    button.append(name, meta);
+    button.addEventListener('click', () => openChannel(item.id));
+    row.append(button);
+    return row;
+  }));
+}
 
 // ———— 价格与日期核对：AI 识别的售价和日期确认前不进入导出图 ————
-const checkLabels = {
-  price: () => ['售价 ' + money(draft.facts.price), '确认', '改价', 'editPrice'],
-  day: () => ['上新 ' + draft.facts.day, '确认', '改日期', 'editDay'],
-  scope: () => ['范围 ' + scopeLabel(draft.facts.scope) + '（默认）', '确认', '修改', 'editScope'],
-};
+const factFields = { name: 'editName', price: 'editPrice', day: 'editDay', scope: 'editScope' };
 function confirmFacts(ids) {
   persist({ ...draft, unconfirmed: unconfirmed().filter(id => !ids.includes(id)) });
   syncReview();
   if (!unconfirmed().length) notice('售价、日期和范围已确认，可以导出了。');
 }
+function editFact(field) {
+  $('editProduct').click();
+  $(field)?.focus();
+}
 function renderFactCheck() {
   const list = unconfirmed();
-  $('factCheck').hidden = draft.stage !== 'review' || !list.length;
-  $('factCheckList').replaceChildren(...list.filter(id => checkLabels[id]).map(id => {
-    const [label, ok, change, field] = checkLabels[id]();
-    const row = document.createElement('li');
+  $('factCheckHint').textContent = list.length ? `还有 ${list.length} 项待确认，确认后才能导出` : '全部已确认 · 可随时修改';
+  $('confirmAll').hidden = !list.length;
+  const rows = Object.entries(fields).map(([id, label]) => {
+    const row = document.createElement('div');
+    row.className = 'kv-row';
+    const wait = list.includes(id);
+    row.dataset.state = wait ? 'pending' : 'ok';
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const value = document.createElement('dd');
     const text = document.createElement('span');
-    text.textContent = label;
-    const confirm = document.createElement('button');
-    confirm.type = 'button';
-    confirm.className = 'primary';
-    confirm.textContent = ok;
-    confirm.setAttribute('aria-label', ok + label);
-    confirm.addEventListener('click', () => confirmFacts([id]));
+    text.className = 'kv-value';
+    text.textContent = draft.facts[id] ? valueText(id, draft.facts[id]) : '未填写';
+    const state = document.createElement('small');
+    state.className = 'kv-state';
+    state.textContent = wait ? (id === 'scope' ? '默认值 · 待确认' : 'AI 识别 · 待确认') : '已确认';
+    const actions = document.createElement('span');
+    actions.className = 'kv-actions';
+    if (wait) {
+      const confirm = document.createElement('button');
+      confirm.type = 'button';
+      confirm.className = 'primary';
+      confirm.textContent = '确认';
+      confirm.setAttribute('aria-label', `确认${label} ${text.textContent}`);
+      confirm.addEventListener('click', () => confirmFacts([id]));
+      actions.append(confirm);
+    }
     const edit = document.createElement('button');
     edit.type = 'button';
-    edit.textContent = change;
-    edit.addEventListener('click', () => {
-      $('editProduct').click();
-      $(field).focus();
-    });
-    row.append(text, confirm, edit);
+    edit.textContent = '改';
+    edit.setAttribute('aria-label', '修改' + label);
+    edit.addEventListener('click', () => editFact(factFields[id]));
+    actions.append(edit);
+    value.append(text, state, actions);
+    row.append(term, value);
     return row;
-  }));
+  });
+  const works = document.createElement('div');
+  works.className = 'kv-row';
+  works.dataset.state = 'info';
+  const term = document.createElement('dt');
+  term.textContent = '渠道';
+  const value = document.createElement('dd');
+  const text = document.createElement('span');
+  text.className = 'kv-value';
+  text.textContent = currentWorks().map(c => c.title).join('、') || '—';
+  value.append(text);
+  works.append(term, value);
+  $('factCheckList').replaceChildren(...rows, works);
 }
 $('confirmAll').addEventListener('click', () => confirmFacts(['price', 'day', 'scope']));
+$('editAllFacts').addEventListener('click', () => $('editProduct').click());
 
 // ———— 左侧工具栏：一键收起/展开，状态记在本机 ————
 const RAIL_KEY = 'cafe-brief:rail';
@@ -562,8 +691,8 @@ $('railToggle').addEventListener('click', () => {
 syncRail();
 
 let openTool = null;
-const toolTitles = { upload: '上传/商品', ai: 'AI 生成', template: '模板版式', text: '文字', channels: '渠道适配', export: '导出', recent: '最近草稿' };
-const reviewTools = ['ai', 'template', 'text', 'channels', 'export'];
+const toolTitles = { upload: '上传/商品', ai: 'AI 生成', template: '模板版式', scene: '换背景', text: '文字', channels: '渠道适配', export: '导出', recent: '最近草稿' };
+const reviewTools = ['ai', 'template', 'scene', 'text', 'channels', 'export'];
 const recentHome = { parent: $('recent').parentElement, next: $('recent').nextElementSibling };
 
 function dockRecent(inPanel) {
@@ -591,6 +720,7 @@ function renderTool() {
   for (const button of document.querySelectorAll('.rail-item')) button.setAttribute('aria-pressed', String(button.dataset.tool === openTool));
   dockRecent(openTool === 'recent');
   syncRecentVisibility();
+  if (openTool !== 'scene') sceneTools?.close();
   if (!openTool) return;
   $('toolTitle').textContent = toolTitles[openTool];
   const waiting = reviewTools.includes(openTool) && draft.stage !== 'review';
@@ -601,6 +731,7 @@ function renderTool() {
 function renderToolBody() {
   if (openTool === 'upload') renderUploadPanel();
   if (openTool === 'template') renderTemplatePanel();
+  if (openTool === 'scene') void openScenePanel();
   if (openTool === 'text') renderTextPanel();
   if (openTool === 'channels') renderChannelPanel();
   if (openTool === 'export') renderExportPanel();
@@ -658,7 +789,7 @@ function renderTemplatePanel() {
     card.className = 'palette-card';
     const active = current.palette?.paper === option.paper && current.palette?.ink === option.ink;
     if (active) card.dataset.active = '';
-    const preview = art(target, draft.facts, $('photoPreview'), {
+    const preview = art(target, draft.facts, pictureFor(target), {
       ...artOptions(target, draft, true), settings: { ...current, style: '', palette: option },
     });
     const swatches = document.createElement('div');
@@ -933,7 +1064,7 @@ function renderChannelPanel() {
     }
     if (included) setTimeout(() => {
       if (number !== channelRender) return;
-      thumb.replaceChildren(art(work, draft.facts, $('photoPreview'), artOptions(work, draft, true)));
+      thumb.replaceChildren(art(work, draft.facts, pictureFor(work), artOptions(work, draft, true)));
     }, 80 * (list.indexOf(work) + 1));
     return row;
   });
@@ -1163,6 +1294,229 @@ $('productForm').addEventListener('submit', event => {
 });
 $('writeCopy').addEventListener('click', () => openTool === 'ai' ? $('regenPrompt').focus() : toggleTool('ai'));
 
+// ———— 换背景：合成结果存进草稿（商品透明图 + 背景），按渠道照片框比例现场合成 ————
+let scenePic = null;
+let sceneTools = null;
+const sceneHistory = [];
+const sceneApplies = channel => Boolean(scenePic && draft.scene && channel?.id !== 'source'
+  && (draft.scene.applyTo === 'all' || draft.scene.applyTo?.includes(channel.id)));
+const pictureFor = channel => sceneApplies(channel) ? scenePic : $('photoPreview');
+function sceneNote(selected) {
+  const used = selected.filter(sceneApplies);
+  if (!used.length) return '';
+  const label = draft.scene.label || '场景背景';
+  const rest = used.length < selected.length ? '其余使用商户商品照本地排版。' : '';
+  return `${used.map(c => c.title).join('、')}已换背景（${label}），商品为原片抠图合成。${rest}`;
+}
+const bitmap = blob => blob ? createImageBitmap(blob) : null;
+async function rebuildScenePicture() {
+  const scene = draft.scene;
+  if (!scene) { scenePic = null; return; }
+  try {
+    const [{ scenePicture }, product, background] = await Promise.all([
+      import('./scenes.mjs?v=202611261'), bitmap(scene.product), bitmap(scene.background),
+    ]);
+    if (draft.scene !== scene) return;
+    scenePic = scenePicture(scene.state, { product, background });
+  } catch {
+    scenePic = null;
+  }
+}
+async function setScene(next, message) {
+  sceneHistory.push(draft.scene ?? null);
+  if (sceneHistory.length > 12) sceneHistory.shift();
+  persist({ ...draft, scene: next });
+  await rebuildScenePicture();
+  lastPreview = null;
+  renderReview();
+  sceneTools?.sync();
+  if (message) notice(message);
+}
+async function undoScene() {
+  if (!sceneHistory.length) return;
+  persist({ ...draft, scene: sceneHistory.pop() });
+  await rebuildScenePicture();
+  lastPreview = null;
+  renderReview();
+  sceneTools?.sync();
+  notice('已撤销上一步换背景。');
+}
+function focusedWork() {
+  const id = activeChannel ?? lastChannel;
+  return id && id !== 'source' ? choices(id) : null;
+}
+async function openScenePanel() {
+  if (!draft.photo) {
+    $('cutoutStatus').textContent = '先上传商品照，才能抠出商品换背景。';
+    return;
+  }
+  if (!sceneTools) {
+    $('cutoutStatus').textContent = '正在打开换背景工具…';
+    try {
+      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611261');
+      sceneTools = mountScenePanel({
+        $, notice, reducedMotion,
+        photo: () => $('photoPreview'),
+        draft: () => draft,
+        focusedWork,
+        isOpen: () => openTool === 'scene',
+        apply: setScene,
+        undo: undoScene,
+        canUndo: () => sceneHistory.length > 0,
+        fitCanvas: () => canvas.fitIfAutomatic(),
+      });
+    } catch {
+      $('cutoutStatus').textContent = '换背景工具加载失败，请刷新后重试。';
+      return;
+    }
+  }
+  if (openTool === 'scene') sceneTools.open();
+}
+
+// ———— 豆包 Seedream 在线生图：经 Cloudflare 云接口；探测失败就明确说明，绝不停在等待态————
+let cloud = { ok: false, pending: true };
+let sceneStyle = sceneStyles[0].id;
+let sceneJob = null;
+let sceneResult = null;
+function renderSceneStyles() {
+  for (const group of document.querySelectorAll('[data-style-group]')) group.replaceChildren(...sceneStyles.map(style => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = style.label;
+    chip.setAttribute('aria-pressed', String(style.id === sceneStyle));
+    chip.addEventListener('click', () => { sceneStyle = style.id; renderSceneStyles(); });
+    return chip;
+  }));
+}
+renderSceneStyles();
+function quotaText() {
+  if (cloud.pending) return '正在连接豆包…';
+  if (!cloud.ok) return cloud.configured === false ? '在线生图暂未配置 · 本地场景照常' : '在线生图不可用 · 本地场景照常';
+  return cloud.unlimited ? '已解锁 · 不限次数' : `今日还可生成 ${cloud.remaining ?? 0} 次`;
+}
+function renderCloud() {
+  const status = $('cloudStatus');
+  status.hidden = false;
+  status.dataset.state = cloud.pending ? 'busy' : cloud.ok ? 'ok' : 'down';
+  $('cloudText').textContent = cloud.pending ? '豆包生图 · 连接中' : cloud.ok ? `豆包生图 · ${cloud.unlimited ? '已解锁' : `今日剩 ${cloud.remaining ?? 0} 次`}` : CLOUD_DOWN;
+  $('cloudStatus').title = $('cloudText').textContent + (cloud.ok ? ' · ' + CLOUD_NOTE : '');
+  $('aiSceneQuota').textContent = quotaText();
+  const running = Boolean(sceneJob);
+  for (const id of ['aiSceneGo', 'aiSceneFromAi']) {
+    $(id).disabled = running;
+    $(id).lastChild.textContent = running ? '生成中…' : id === 'aiSceneGo' ? '生成 AI 场景' : '生成场景图';
+  }
+  $('aiSceneCancel').hidden = !running;
+}
+async function probeCloud() {
+  cloud = { ...cloud, pending: true };
+  renderCloud();
+  const result = await cloudStatus();
+  cloud = { ...result, pending: false };
+  renderCloud();
+}
+function sceneStage(id, state, detail = '') {
+  const item = $('aiSceneStages').querySelector(`[data-step="${id}"]`);
+  item.dataset.state = state;
+  item.querySelector('small').textContent = detail;
+}
+async function runAiScene() {
+  if (sceneJob) return;
+  if (!draft.photo) { $('aiSceneStatus').textContent = '先上传商品照，豆包会以它为参考生成场景。'; return; }
+  if (draft.stage !== 'review') { $('aiSceneStatus').textContent = '先生成一套物料，再做 AI 场景图。'; return; }
+  if (!cloud.ok && !cloud.pending) {
+    await probeCloud();
+    if (!cloud.ok) { $('aiSceneStatus').textContent = cloud.configured === false ? cloudMessage('SERVER_CONFIG') : cloudMessage('NETWORK'); return; }
+  }
+  const style = sceneStyles.find(item => item.id === sceneStyle) ?? sceneStyles[0];
+  const controller = new AbortController();
+  sceneJob = controller;
+  $('unlockRow').hidden = true;
+  $('aiSceneResult').hidden = true;
+  $('aiSceneStages').hidden = false;
+  for (const item of $('aiSceneStages').children) sceneStage(item.dataset.step, 'pending');
+  renderCloud();
+  const started = performance.now();
+  const ticker = setInterval(() => {
+    const seconds = Math.round((performance.now() - started) / 1000);
+    sceneStage('generate', 'active', `${seconds} 秒 · 通常 60–120 秒`);
+  }, 1000);
+  try {
+    sceneStage('prepare', 'active');
+    $('aiSceneStatus').textContent = `正在用「${style.label}」风格生成，可继续编辑其他内容。`;
+    const image = `data:${draft.photo.type || 'image/jpeg'};base64,${await base64Photo(draft.photo)}`;
+    sceneStage('prepare', 'done', `${Math.round((performance.now() - started) / 100) / 10} 秒`);
+    const result = await generateScene(draft.facts, draft.branding ?? {}, image, style.style, {
+      signal: controller.signal,
+      onStage(stage) {
+        if (stage === 'generate') sceneStage('generate', 'active', '0 秒');
+        if (stage === 'fetch') { clearInterval(ticker); sceneStage('generate', 'done', `${Math.round((performance.now() - started) / 1000)} 秒`); sceneStage('fetch', 'active'); }
+        if (stage === 'done') sceneStage('fetch', 'done');
+      },
+    });
+    sceneStage('done', 'done', `共 ${result.seconds} 秒`);
+    sceneResult = { blob: result.blob, label: style.label };
+    URL.revokeObjectURL($('aiSceneImage').src);
+    $('aiSceneImage').src = URL.createObjectURL(result.blob);
+    $('aiSceneResult').hidden = false;
+    cloud = { ...cloud, ok: true, remaining: result.remaining ?? cloud.remaining, unlimited: result.unlimited };
+    $('aiSceneStatus').textContent = `豆包已生成「${style.label}」场景图，用时 ${result.seconds} 秒。${result.unlimited ? '' : `今日还可生成 ${result.remaining ?? 0} 次。`}`;
+  } catch (error) {
+    clearInterval(ticker);
+    for (const item of $('aiSceneStages').children) if (item.dataset.state === 'active') sceneStage(item.dataset.step, 'failed', '未完成');
+    $('aiSceneStatus').textContent = (error.message || cloudMessage('MODEL_FAILED')) + (error.code === 'ABORTED' ? '' : ' 下方本地场景可直接使用。');
+    if (error.code === 'QUOTA_EXCEEDED') { cloud = { ...cloud, remaining: 0 }; $('unlockRow').hidden = false; }
+    if (error.code === 'NETWORK') cloud = { ok: false, pending: false, code: 'NETWORK' };
+  } finally {
+    clearInterval(ticker);
+    sceneJob = null;
+    renderCloud();
+  }
+}
+$('aiSceneGo').addEventListener('click', () => void runAiScene());
+$('aiSceneFromAi').addEventListener('click', () => {
+  openToolPanel('scene');
+  requestAnimationFrame(() => $('aiScene').scrollIntoView({ block: 'nearest' }));
+  void runAiScene();
+});
+$('aiSceneCancel').addEventListener('click', () => sceneJob?.abort());
+$('aiSceneWhole').addEventListener('click', async () => {
+  if (!sceneResult || busy) return;
+  const file = new File([sceneResult.blob], `豆包场景-${sceneResult.label}.jpg`, { type: sceneResult.blob.type || 'image/jpeg' });
+  await withProgress('正在换成豆包场景图', async () => {
+    sceneHistory.length = 0;
+    await acceptPhoto(file);
+    persist({ ...draft, revision: draft.revision + 1 });
+    lastPreview = null;
+    renderReview();
+    sceneTools?.reset();
+  });
+  $('aiSceneStatus').textContent = '已把豆包场景图设为商品照，整套物料已更新。';
+});
+$('aiSceneBg').addEventListener('click', () => {
+  if (!sceneResult) return;
+  sceneTools?.useBackground(sceneResult.blob, 'ai', `豆包 AI 场景 · ${sceneResult.label}`);
+});
+$('unlockGo').addEventListener('click', async () => {
+  const password = $('unlockPassword').value;
+  if (!password) return;
+  $('unlockGo').disabled = true;
+  try {
+    await unlockCloud(password);
+    $('unlockPassword').value = '';
+    $('unlockRow').hidden = true;
+    cloud = { ...cloud, ok: true, unlimited: true };
+    $('aiSceneStatus').textContent = '已解锁，可以继续生成。';
+  } catch (error) {
+    $('aiSceneStatus').textContent = error.message || cloudMessage('UNLOCK_INVALID');
+  } finally {
+    $('unlockGo').disabled = false;
+    renderCloud();
+  }
+});
+$('unlockPassword').addEventListener('keydown', event => { if (event.key === 'Enter') $('unlockGo').click(); });
+
 function sourceImage() {
   const photo = document.createElement('img');
   photo.src = $('photoPreview').src;
@@ -1220,14 +1574,6 @@ function renderReview() {
     return button;
   }));
   renderMode();
-  const list = Object.entries(fields).flatMap(([id, label]) => {
-    const term = document.createElement('dt');
-    const value = document.createElement('dd');
-    term.textContent = label;
-    value.textContent = valueText(id, draft.facts[id]);
-    return [term, value];
-  });
-  $('factSummary').replaceChildren(...list);
   $('excluded').hidden = draft.facts.scope !== 'store';
   $('version').textContent = 'v' + draft.revision;
   const editedCount = fixtures.filter(c => draft.edits[c.id]).length;
@@ -1248,6 +1594,7 @@ function renderReview() {
 }
 
 function syncReview() {
+  if (chipPlan && draft.facts && $('aiChips').childElementCount) $('aiChips').replaceChildren(...factChips(draft.facts, chipPlan, unconfirmed()));
   const conflicts = pending();
   const unsaved = currentWorks().filter(c => c.id in buffers());
   const messages = [
@@ -1262,6 +1609,8 @@ function syncReview() {
   $('undo').hidden = !draft.previousFacts;
   $('canvasRecovery').hidden = !(draft.removedWorks ?? []).some(id => !(draft.planRemoved ?? []).includes(id));
   renderFactCheck();
+  renderReady();
+  renderWorkList();
   if (openTool === 'export') renderExportPanel();
 }
 
@@ -1274,7 +1623,7 @@ function renderImpact() {
     const channel = choices(tile.dataset.channel);
     if (!channel) continue;
     tile.dataset.impact = String(Boolean(proposal));
-    tile.querySelector('.tile-art').replaceChildren(art(channel, preview.facts, $('photoPreview'), artOptions(channel, preview, true)));
+    tile.querySelector('.tile-art').replaceChildren(art(channel, preview.facts, pictureFor(channel), artOptions(channel, preview, true)));
     tile.querySelector('small').textContent = proposal
       ? Object.entries(proposal.patch).map(([id, value]) => valueText(id, draft.facts[id]) + ' → ' + valueText(id, value)).join(' · ')
       : draft.edits[channel.id]?.pending ? '待核对手改文案' : channel.width + ' × ' + channel.height;
@@ -1374,6 +1723,7 @@ function detailEvidence(text) {
   return staleEvidence({ history }, text, draft.facts);
 }
 
+let wasFocused = false;
 function renderMode() {
   const focused = Boolean(activeChannel);
   $('canvasViewport').hidden = focused;
@@ -1386,8 +1736,10 @@ function renderMode() {
   $('deleteWork').hidden = !focused || activeChannel === 'source';
   $('detail').hidden = !focused || activeChannel === 'source';
   $('sourceDetail').hidden = activeChannel !== 'source';
-  $('projectActions').hidden = focused;
-  $('aiRun').hidden = focused || !runShown;
+  $('aiRun').hidden = !runShown;
+  if (focused !== wasFocused) selectPane(focused ? 'work' : pane === 'work' ? 'assist' : pane);
+  wasFocused = focused;
+  renderWorkList();
   $('canvasOverview').setAttribute('aria-pressed', String(!focused));
   $('canvasFocus').setAttribute('aria-pressed', String(focused));
   for (const button of $('channelList').children) {
@@ -1514,7 +1866,7 @@ function artOptions(channel, version = draft, thumbnail = false) {
 }
 function renderFocusedArt(channel, version = draft) {
   const options = artOptions(channel, version);
-  $('previewSlot').replaceChildren(art(channel, version.facts, $('photoPreview'), {
+  $('previewSlot').replaceChildren(art(channel, version.facts, pictureFor(channel), {
     ...options, title: $('artTitle').value.trim() || options.title,
   }));
 }
@@ -1611,7 +1963,7 @@ $('peekPhoto').addEventListener('click', () => {
 $('phonePreview').addEventListener('click', () => {
   const work = choices(activeChannel);
   if ((work?.baseId ?? work?.id) !== 'delivery') return;
-  $('phoneArt').replaceChildren(art(work, draft.facts, $('photoPreview'), artOptions(work, draft, true)));
+  $('phoneArt').replaceChildren(art(work, draft.facts, pictureFor(work), artOptions(work, draft, true)));
   $('phoneProduct').textContent = draft.facts.name;
   $('phonePrice').textContent = money(draft.facts.price);
   $('phoneDialog').showModal();
@@ -1621,7 +1973,7 @@ $('downloadJpeg').addEventListener('click', async () => {
   const work = choices(activeChannel);
   setBusy(true);
   try {
-    const image = art(work, draft.facts, $('photoPreview'), artOptions(work));
+    const image = art(work, draft.facts, pictureFor(work), artOptions(work));
     saveBlob(await getBlob(image, .91), work.title + '.jpg');
     $('detailStatus').textContent = '已下载当前作品 JPG。';
   } catch {
@@ -1645,7 +1997,7 @@ async function download(selected, feedback = notice) {
   const snapshot = draft;
   try {
     feedback('正在打包当前版本。');
-    const blob = await packageAssets(snapshot, selected, $('photoPreview'));
+    const blob = await packageAssets(snapshot, selected, pictureFor, sceneNote(selected));
     const name = snapshot.facts.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
     saveBlob(blob, `CafeBrief_${name}${selected.length === 1 ? '_' + selected[0].title : ''}_v${snapshot.revision}.zip`);
     feedback(`已打包 v${snapshot.revision}，包含 ${selected.length} 个渠道的图片和中文文案。`);
@@ -1804,6 +2156,8 @@ $('undoDraftDelete').addEventListener('click', async () => {
 
 setBusy(true);
 void refreshStatus();
+renderCloud();
+setTimeout(() => void probeCloud(), 600);
 try {
   db = await openDraftStore();
   const restored = await loadDraft(db);
@@ -1821,6 +2175,7 @@ try {
   }
   $('aiPrompt').value = draft.note ?? '';
   await showPhoto();
+  await rebuildScenePicture();
   show(draft.stage, false);
 } catch {
   db = null;
