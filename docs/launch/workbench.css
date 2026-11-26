@@ -479,6 +479,7 @@ dialog h2 { font-size: var(--fs-16); }
 .ai-scene-card h3 .icon, .ai-scene h4 .icon { width: 16px; height: 16px; color: var(--brand); }
 .ai-scene h4 { display: inline-flex; align-items: center; gap: 6px; }
 .ai-scene h4 { white-space: nowrap; }
+.ai-scene .panel-head { flex-wrap: wrap; row-gap: var(--s-1); }
 .ai-scene-sub { margin-inline-start: 4px; color: var(--text-3); font-size: var(--fs-12); font-weight: 400; }
 .ai-scene #aiSceneQuota { color: var(--text-2); font-weight: 500; }
 .ai-scene #aiSceneQuota[data-state="ok"] { color: #00754A; }

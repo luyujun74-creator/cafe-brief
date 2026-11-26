@@ -193,3 +193,38 @@ test('P1-1 实际补执行函数只重放一次早期点击', async () => {
   assert.equal(context.window.__cbReady, true);
   assert.equal(context.document.documentElement.dataset.booting, undefined);
 });
+
+// 重探的异步窗口必须锁住两个入口，程序化重复调用也不能开始生图。
+test('P1-B 云接口慢重探期间锁住两个按钮，重复调用不生图，结束后允许再试', async () => {
+  const source = await read('../docs/launch/app.mjs');
+  const nodes = new Map();
+  let release, probes = 0, generated = 0;
+  const context = vm.createContext({
+    cloud: { ok: false, pending: false }, sceneJob: null,
+    draft: { photo: { type: 'image/jpeg' }, stage: 'review' },
+    CLOUD_DOWN: '不可用', CLOUD_NOTE: '网络说明',
+    $: id => {
+      if (!nodes.has(id)) nodes.set(id, { dataset: {}, lastChild: { textContent: '' } });
+      return nodes.get(id);
+    },
+    cloudStatus: () => { probes++; return new Promise(resolve => { release = resolve; }); },
+    cloudMessage: code => code,
+    base64Photo: async () => { generated++; return ''; },
+  });
+  for (const signature of ['function quotaText()', 'function renderCloud()', 'async function probeCloud(', 'async function runAiScene()']) {
+    vm.runInContext(body(source, signature) + '\n}', context);
+  }
+  const first = vm.runInContext('runAiScene()', context);
+  assert.equal(probes, 1);
+  for (const id of ['aiSceneGo', 'aiSceneFromAi']) assert.equal(nodes.get(id).disabled, true, id + ' 在重探期间应保持禁用');
+  await vm.runInContext('runAiScene()', context);
+  assert.equal(probes, 1, '重复调用不能另开探测');
+  assert.equal(generated, 0, '探测未完成不得生成');
+  release({ ok: false, configured: true, code: 'NETWORK' });
+  await first;
+  for (const id of ['aiSceneGo', 'aiSceneFromAi']) assert.equal(nodes.get(id).disabled, false, '失败后允许重试');
+  const next = vm.runInContext('runAiScene()', context);
+  assert.equal(probes, 2);
+  release({ ok: false, configured: true, code: 'NETWORK' });
+  await next;
+});

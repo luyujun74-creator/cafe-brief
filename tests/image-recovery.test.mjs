@@ -140,7 +140,7 @@ test('probe sequence discards late older status',async()=>{
  assert.equal(a.S.remaining,1);assert.equal(a.S.engine,'online');
 });
 test('SWR restores fresh and stale cache, rejects expired cache',()=>{
- const a=app();for(const [age,fresh] of [[1000,true],[30000,true],[60000,false],[300000,false],[301000,false]]){
+ const a=app();for(const [age,fresh] of [[1000,true],[30000,true],[60000,false],[299000,false],[301000,false]]){
  a.S.remaining=null;a.storage.set('cb_status_v2',JSON.stringify({at:Date.now()-age,st:{remaining:2,unlimited:false}}));
  assert.equal(a.restoreStatus(),fresh);assert.equal(a.S.remaining,age>300000?null:2);
  if(age<=300000) assert.equal(a.S.engine,fresh?'online':'ready');

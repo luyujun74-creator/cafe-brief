@@ -1,4 +1,4 @@
-import { arrangementBounds, fitCamera, placeCard, zoomCamera } from './canvas-geometry.mjs?v=202611266';
+import { arrangementBounds, fitCamera, placeCard, zoomCamera } from './canvas-geometry.mjs?v=202611267';
 
 const placements = {
   source: { x: 394, y: 456, width: 271, height: 235 },

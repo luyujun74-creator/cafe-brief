@@ -1,4 +1,4 @@
-import { channels } from './workflow.mjs?v=202611266';
+import { channels } from './workflow.mjs?v=202611267';
 
 export function works(draft) {
   const base = channels(draft.facts);

@@ -1,17 +1,17 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
-} from './workflow.mjs?v=202611266';
-import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611266';
-import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611266';
-import { mountCanvas } from './canvas-board.mjs?v=202611266';
-import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611266';
-import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611266';
+} from './workflow.mjs?v=202611267';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611267';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611267';
+import { mountCanvas } from './canvas-board.mjs?v=202611267';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611267';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611267';
 import {
   channelNames, fallbackPalette, firstQuestion, paletteFromPixels, parseInstruction, rewriteCandidates, titleLimit, titleOverflow, toneCopy, tones,
-} from './ai-engine.mjs?v=202611266';
-import { illustrationFile } from './illustration.mjs?v=202611266';
-import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611266';
+} from './ai-engine.mjs?v=202611267';
+import { illustrationFile } from './illustration.mjs?v=202611267';
+import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611267';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -1383,7 +1383,7 @@ async function rebuildScenePicture() {
   if (!scene) { scenePic = null; return; }
   try {
     const [{ scenePicture }, product, background] = await Promise.all([
-      import('./scenes.mjs?v=202611266'), bitmap(scene.product), bitmap(scene.background),
+      import('./scenes.mjs?v=202611267'), bitmap(scene.product), bitmap(scene.background),
     ]);
     if (draft.scene !== scene) return;
     scenePic = scenePicture(scene.state, { product, background });
@@ -1422,7 +1422,7 @@ async function openScenePanel() {
   if (!sceneTools) {
     $('cutoutStatus').textContent = '正在打开换背景工具…';
     try {
-      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611266');
+      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611267');
       sceneTools = mountScenePanel({
         $, notice, reducedMotion,
         photo: () => $('photoPreview'),
@@ -1475,9 +1475,10 @@ function renderCloud() {
   $('aiSceneQuota').textContent = quotaText();
   $('aiSceneQuota').dataset.state = status.dataset.state;
   const running = Boolean(sceneJob);
+  const busyCloud = Boolean(sceneJob || (cloud.pending && cloud.retrying));
   for (const id of ['aiSceneGo', 'aiSceneFromAi']) {
-    $(id).disabled = running;
-    $(id).lastChild.textContent = running ? '生成中…' : id === 'aiSceneGo' ? '生成 AI 场景' : '生成场景图';
+    $(id).disabled = busyCloud;
+    $(id).lastChild.textContent = cloud.pending && cloud.retrying ? '检测中…' : running ? '生成中…' : id === 'aiSceneGo' ? '生成 AI 场景' : '生成场景图';
   }
   $('aiSceneCancel').hidden = !running;
 }
@@ -1494,7 +1495,7 @@ function sceneStage(id, state, detail = '') {
   item.querySelector('small').textContent = detail;
 }
 async function runAiScene() {
-  if (sceneJob) return;
+  if (sceneJob || (cloud.pending && cloud.retrying)) return;
   if (!draft.photo) { $('aiSceneStatus').textContent = '先上传商品照，豆包会以它为参考生成场景。'; return; }
   if (draft.stage !== 'review') { $('aiSceneStatus').textContent = '先生成一套物料，再做 AI 场景图。'; return; }
   if (!cloud.ok && !cloud.pending) {
