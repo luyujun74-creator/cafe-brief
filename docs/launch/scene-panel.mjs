@@ -1,7 +1,7 @@
 // 换背景面板：抠出商品 → 选背景 → 拖动/缩放/调光 → 应用到全部或当前作品。
 // 只在点开「换背景」时才加载；AI 精细抠图再按需加载模型。
-import { scenes, sceneById, sceneLabel, defaultPlacement, composeScene, productRect } from './scenes.mjs?v=202611265';
-import { quickCutout, aiCutout, applyMask, paintMask, cloneCanvas, canvasBlob, canvasFromBlob, prefetchCutoutModel, cutoutModelState } from './cutout.mjs?v=202611265';
+import { scenes, sceneById, sceneLabel, defaultPlacement, composeScene, productRect } from './scenes.mjs?v=202611266';
+import { quickCutout, aiCutout, applyMask, paintMask, cloneCanvas, canvasBlob, canvasFromBlob, prefetchCutoutModel, cutoutModelState } from './cutout.mjs?v=202611266';
 
 const MAX_BG = 1600;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -75,7 +75,13 @@ export function mountScenePanel(app) {
       : `原片背景较复杂，已用「智能裁切+柔化边缘」抠出商品（${ms} 毫秒）。可试「AI 精细抠图」。`);
     $('cutoutRun').lastChild.textContent = '重新抠图';
     $('cutoutAi').hidden = false;
+    emphasize('cutoutAi');
     $('brushTools').hidden = false;
+  }
+
+  // 快速抠图后主按钮让给「AI 精细抠图」；精细抠图完成后两者都降为次按钮。
+  function emphasize(id) {
+    for (const other of ['cutoutRun', 'cutoutAi']) $(other).classList.toggle('primary', other === id);
   }
 
   async function runAi() {
@@ -102,12 +108,14 @@ export function mountScenePanel(app) {
       mask = result.mask;
       method = 'ai';
       rebuildProduct();
+      emphasize(null);
       status('AI 精细抠图完成。可用画笔擦除或恢复局部。');
     } catch (error) {
       if (token !== aiToken) return;
       const kept = method === 'color' ? '已保留本机抠图结果' : '已回退到「智能裁切+柔化边缘」';
+      const stillLoading = cutoutModelState().state === 'downloading';
       status(error.phase === 'download'
-        ? `AI 抠图未完成（${error.message}），${kept}。模型还在下载，可稍后再点 AI 精细抠图。`
+        ? `AI 抠图未完成（${error.message}），${kept}。${stillLoading ? '模型还在下载，可稍后再点 AI 精细抠图。' : '模型下载中断，可稍后重试 AI 精细抠图。'}`
         : `AI 抠图未完成（${error.message}），${kept}，可继续用画笔修边。`);
     } finally {
       if (token === aiToken) {
@@ -295,7 +303,7 @@ export function mountScenePanel(app) {
     $('cutoutCancel').hidden = true;
     $('cutoutProgress').hidden = true;
     status(cutoutModelState().state === 'downloading'
-      ? '已停止等待，保留当前抠图结果。模型还在后台下载，可稍后再点 AI 精细抠图。'
+      ? '已停止等待，保留当前抠图结果。模型还在下载，可稍后再点 AI 精细抠图。'
       : '已停止 AI 抠图，保留当前抠图结果。');
   });
   for (const button of $('brushTools').querySelectorAll('[data-brush]')) button.addEventListener('click', () => {
@@ -405,6 +413,7 @@ export function mountScenePanel(app) {
     $('brushTools').hidden = true;
     $('cutoutAi').hidden = true;
     $('cutoutRun').lastChild.textContent = '抠出商品';
+    emphasize('cutoutRun');
     $('cutoutPreview').getContext('2d').clearRect(0, 0, 120, 120);
   }
 

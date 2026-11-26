@@ -80,7 +80,10 @@ test('换背景与 AI 抠图模型按需加载，首屏不引入', async () => {
   const html = await read('../docs/launch/index.html');
   const app = await read('../docs/launch/app.mjs');
   assert.doesNotMatch(html, /(src|href)="[^"]*(scene-panel|scenes|cutout|u2netp|onnx|vendor)[^"]*"/);
-  assert.doesNotMatch(html, /rel="(preload|modulepreload)"/);
+  // 只允许预加载首页本来就要用的核心小模块；换背景、抠图模型等重资源一律不得预加载。
+  for (const [, href] of html.matchAll(/rel="(?:preload|modulepreload)" href="([^"]+)"/g)) {
+    assert.doesNotMatch(href, /scene-panel|scenes|cutout|vendor|onnx|wasm|woff|\.(ttf|otf|eot|jpe?g|png|webp|avif)/i, href);
+  }
   assert.doesNotMatch(app, /^import .*(scene-panel|scenes|cutout)\.mjs/m);
   assert.match(app, /import\('\.\/scene-panel\.mjs\?v=/);
   const panel = await read('../docs/launch/scene-panel.mjs');

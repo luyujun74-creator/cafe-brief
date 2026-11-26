@@ -7,9 +7,33 @@
   <title>Café Brief · AI 创作工作台</title>
   <link rel="icon" href="../assets/favicon.svg">
   <script>try { document.documentElement.dataset.rail = localStorage.getItem('cafe-brief:rail') === 'collapsed' ? 'collapsed' : 'expanded'; } catch {}</script>
-  <link rel="stylesheet" href="../tokens.css?v=202611265">
-  <link rel="stylesheet" href="../launch/workbench.css?v=202611265">
-  <script type="module" src="../launch/app.mjs?v=202611265"></script>
+  <link rel="stylesheet" href="../tokens.css?v=202611266">
+  <link rel="stylesheet" href="../launch/workbench.css?v=202611266">
+  <script>
+    // 工作台脚本就绪前，先接住首页按钮的点击（如「试用拿铁示例」），就绪后自动补执行，不让点击被吞掉。
+    document.addEventListener('click', event => {
+      if (window.__cbReady) return;
+      const button = event.target.closest && event.target.closest('#intake button');
+      if (!button) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.__cbEarly = button;
+      button.setAttribute('aria-busy', 'true');
+      document.documentElement.dataset.booting = 'true';
+    }, true);
+  </script>
+  <link rel="modulepreload" href="../launch/workflow.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/media.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/works.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/canvas-board.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/canvas-geometry.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/storage.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/landing.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/ai-engine.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/illustration.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/cloud.mjs?v=202611266">
+  <link rel="modulepreload" href="../launch/zip.mjs?v=202611266">
+  <script type="module" src="../launch/app.mjs?v=202611266"></script>
 </head>
 <body data-stage="intake">
   <svg class="sprite" aria-hidden="true" focusable="false">
@@ -44,7 +68,7 @@
         <svg class="icon" aria-hidden="true"><use href="#i-fold"/></svg><span class="rail-label">收起工具栏</span>
       </button>
       <ul class="rail-list">
-        <li><button class="rail-item" type="button" data-tool="upload" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span class="rail-label">上传/商品</span></button></li>
+        <li><button class="rail-item" type="button" data-tool="upload" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span class="rail-label">商品</span></button></li>
         <li><button class="rail-item" type="button" data-tool="ai" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span class="rail-label">AI 生成</span></button></li>
         <li><button class="rail-item" type="button" data-tool="template" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span class="rail-label">模板版式</span></button></li>
         <li><button class="rail-item" type="button" data-tool="scene" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-scene"/></svg><span class="rail-label">换背景</span></button></li>
@@ -119,7 +143,7 @@
             <div id="sceneGrid" class="scene-grid" role="group" aria-label="场景背景"></div>
             <input id="sceneUpload" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp">
             <div class="ai-scene stack" id="aiScene">
-              <div class="panel-head"><h4><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 生成场景（豆包 Seedream）</h4><small id="aiSceneQuota"></small></div>
+              <div class="panel-head"><h4><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>AI 场景图<small class="ai-scene-sub">豆包 Seedream</small></h4><small id="aiSceneQuota"></small></div>
               <div class="chip-row scene-styles" role="group" aria-label="场景风格" data-style-group="scene"></div>
               <button id="aiSceneGo" type="button" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>生成 AI 场景</button>
               <ol id="aiSceneStages" class="ai-steps scene-stages" hidden>
@@ -286,7 +310,7 @@
             </div>
             <div id="pane-assist" class="pane" role="tabpanel" aria-labelledby="tab-assist">
               <section id="aiRun" class="ai-run" aria-labelledby="aiRunTitle" hidden>
-                <div class="panel-head"><h3 id="aiRunTitle"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span id="aiRunLabel">AI 正在生成</span></h3><small id="aiRunTime"></small></div>
+                <div class="panel-head"><h3 id="aiRunTitle"><svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg><span id="aiRunLabel">AI 正在生成</span></h3><span class="ai-run-meta"><small id="aiRunTime"></small><button id="aiRunMore" class="link-button" type="button" aria-expanded="false" aria-controls="aiSteps" hidden>明细</button></span></div>
                 <ol id="aiSteps" class="ai-steps">
                   <li data-step="detect" data-state="pending"><span>识别商品</span><small></small></li>
                   <li data-step="write" data-state="pending"><span>写文案</span><small></small></li>
