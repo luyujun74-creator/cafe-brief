@@ -17,7 +17,8 @@ export const sceneStyles = [
 
 export function cloudBase(location = globalThis.location) {
   const host = location?.hostname || '';
-  return /github\.io$/i.test(host) ? WORKER : `${location?.origin || ''}/api/cloud`;
+  // Worker 的接口在 /api/* 下；本地代理 /api/cloud/* 对应 Worker 的 /api/*。
+  return /github\.io$/i.test(host) ? `${WORKER}/api` : `${location?.origin || ''}/api/cloud`;
 }
 
 export const absolute = (path, base = cloudBase()) => /^https?:/i.test(path) ? path : `${base}${path.replace(/^\/api/, '')}`;

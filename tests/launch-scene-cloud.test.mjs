@@ -9,9 +9,12 @@ const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('线上 github.io 直连 Worker 绝对地址，本地走同源代理', () => {
   assert.equal(WORKER, 'https://cafe-brief.cafe-brief-web.workers.dev');
-  assert.equal(cloudBase({ hostname: 'luyujun74-creator.github.io', origin: 'https://luyujun74-creator.github.io' }), WORKER);
+  const live = cloudBase({ hostname: 'luyujun74-creator.github.io', origin: 'https://luyujun74-creator.github.io' });
+  assert.equal(live, WORKER + '/api');
+  // Worker 只在 /api/* 下提供接口，线上地址必须保留 /api（曾因去掉 /api 导致 404）。
+  assert.equal(absolute('/api/status', live), WORKER + '/api/status');
+  assert.equal(absolute('/api/rendered-image?id=1', live), WORKER + '/api/rendered-image?id=1');
   assert.equal(cloudBase({ hostname: '127.0.0.1', origin: 'http://127.0.0.1:8776' }), 'http://127.0.0.1:8776/api/cloud');
-  assert.equal(absolute('/api/status', WORKER), WORKER + '/status');
   assert.equal(absolute('/api/rendered-image?id=1', 'http://127.0.0.1:8776/api/cloud'), 'http://127.0.0.1:8776/api/cloud/rendered-image?id=1');
   assert.equal(absolute('https://x.dev/a.png', WORKER), 'https://x.dev/a.png');
 });

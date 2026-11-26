@@ -1,17 +1,17 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
-} from './workflow.mjs?v=202611261';
-import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611261';
-import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611261';
-import { mountCanvas } from './canvas-board.mjs?v=202611261';
-import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611261';
-import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611261';
+} from './workflow.mjs?v=202611262';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611262';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611262';
+import { mountCanvas } from './canvas-board.mjs?v=202611262';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611262';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611262';
 import {
   channelNames, fallbackPalette, firstQuestion, paletteFromPixels, parseInstruction, rewriteCandidates, titleLimit, titleOverflow, toneCopy, tones,
-} from './ai-engine.mjs?v=202611261';
-import { illustrationFile } from './illustration.mjs?v=202611261';
-import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611261';
+} from './ai-engine.mjs?v=202611262';
+import { illustrationFile } from './illustration.mjs?v=202611262';
+import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611262';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -1314,7 +1314,7 @@ async function rebuildScenePicture() {
   if (!scene) { scenePic = null; return; }
   try {
     const [{ scenePicture }, product, background] = await Promise.all([
-      import('./scenes.mjs?v=202611261'), bitmap(scene.product), bitmap(scene.background),
+      import('./scenes.mjs?v=202611262'), bitmap(scene.product), bitmap(scene.background),
     ]);
     if (draft.scene !== scene) return;
     scenePic = scenePicture(scene.state, { product, background });
@@ -1353,7 +1353,7 @@ async function openScenePanel() {
   if (!sceneTools) {
     $('cutoutStatus').textContent = '正在打开换背景工具…';
     try {
-      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611261');
+      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611262');
       sceneTools = mountScenePanel({
         $, notice, reducedMotion,
         photo: () => $('photoPreview'),

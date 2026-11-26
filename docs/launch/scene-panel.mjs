@@ -1,7 +1,7 @@
 // 换背景面板：抠出商品 → 选背景 → 拖动/缩放/调光 → 应用到全部或当前作品。
 // 只在点开「换背景」时才加载；AI 精细抠图再按需加载模型。
-import { scenes, sceneById, sceneLabel, defaultPlacement, composeScene, productRect } from './scenes.mjs?v=202611261';
-import { quickCutout, aiCutout, applyMask, paintMask, cloneCanvas, canvasBlob, canvasFromBlob } from './cutout.mjs?v=202611261';
+import { scenes, sceneById, sceneLabel, defaultPlacement, composeScene, productRect } from './scenes.mjs?v=202611262';
+import { quickCutout, aiCutout, applyMask, paintMask, cloneCanvas, canvasBlob, canvasFromBlob } from './cutout.mjs?v=202611262';
 
 const MAX_BG = 1600;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

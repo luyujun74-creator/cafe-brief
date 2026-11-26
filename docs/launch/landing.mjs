@@ -1,5 +1,5 @@
 // 首页落点与「最近草稿」的纯逻辑，便于在 Node 中单独测试。
-import { money, scopeLabel } from './workflow.mjs?v=202611261';
+import { money, scopeLabel } from './workflow.mjs?v=202611262';
 
 export const SESSION_KEY = 'cafe-brief-launch:active';
 export const ARCHIVE_PREFIX = 'archive:';
