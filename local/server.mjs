@@ -11,8 +11,40 @@ const ollama = 'http://127.0.0.1:11434';
 const model = 'gemma3:latest';
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript',
-  '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.woff2': 'font/woff2',
+  '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.woff2': 'font/woff2', '.png': 'image/png',
+  '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.md': 'text/markdown; charset=utf-8',
 };
+// 本地预览时把 /api/cloud/* 转发到线上 Worker（不带浏览器来源头），便于在本机实测豆包生图。
+const worker = process.env.CB_WORKER || 'https://cafe-brief.cafe-brief-web.workers.dev';
+async function relayCloud(req, res, path) {
+  const target = worker + '/api' + path.slice('/api/cloud'.length) + new URL(req.url, origin).search;
+  if (!/^\/api\/cloud\/(status|generate-image|rendered-image|unlock)$/.test(path)) return reply(res, 404, { error: '接口不存在。' });
+  if (req.method === 'POST' && req.headers.origin !== origin) return reply(res, 403, { error: '请求来源无效。' });
+  const chunks = [];
+  let size = 0;
+  if (req.method === 'POST') {
+    for await (const bytes of req) {
+      size += bytes.length;
+      if (size > 11_000_000) return reply(res, 413, { error: '提交内容过大。' });
+      chunks.push(bytes);
+    }
+  }
+  const headers = {};
+  if (req.headers['content-type']) headers['content-type'] = req.headers['content-type'];
+  if (req.headers.authorization) headers.authorization = req.headers.authorization;
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const upstream = await fetch(target, { method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined, signal: controller.signal });
+    res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream' });
+    if (!upstream.body) return res.end();
+    for await (const part of upstream.body) res.write(part);
+    res.end();
+  } catch {
+    if (!res.headersSent) reply(res, 502, { code: 'NETWORK', error: '连不上在线生图服务。' });
+    else res.end();
+  }
+}
 
 function reply(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -144,6 +176,7 @@ http.createServer(async (req, res) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   if (req.headers.host !== `127.0.0.1:${port}`) return reply(res, 403, { error: '请通过本机预览地址访问。' });
   const path = new URL(req.url, origin).pathname;
+  if (path.startsWith('/api/cloud/')) return relayCloud(req, res, path);
   if (path === '/api/status') return reply(res, 200, { configured: false, remaining: 0, unlimited: false });
   if (path === '/api/launch/status' && req.method === 'GET') {
     try {
