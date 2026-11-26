@@ -1,5 +1,5 @@
 // 抠出商品：先用本机颜色算法秒出一版，再按需加载 AI 抠图模型（u2netp，约 4.6 MB + 运行库 11 MB）细化。
-// 模型 15 秒没有任何下载/计算进展、或下载完成后启动+推理超过 45 秒，就保留本机结果并明确告知，不会一直停在等待态。
+// 模型下载 15 秒没有任何新字节、或下载完成后启动+推理超过 45 秒，就保留本机结果并明确告知，不会一直停在等待态。
 // 下载有进度时一直等，不算超时。
 const vendor = new URL('../vendor/', import.meta.url);
 export const STALL_MS = 15_000;
@@ -196,17 +196,23 @@ function startDownload() {
   return attempt;
 }
 
-// 打开「换背景」面板时在浏览器空闲时预取模型（首屏不调用；省流量模式下跳过）。
+// 打开「换背景」面板时在浏览器空闲时预取模型，下完再空闲时启动一次推理会话（首屏不调用；省流量模式下跳过）。
+// 这样用户点「AI 精细抠图」时通常模型已经启动好，只剩识别。
 export function prefetchCutoutModel() {
   if (download.promise || globalThis.navigator?.connection?.saveData) return false;
-  const go = () => { startDownload().catch(() => {}); };
+  const idle = fn => typeof requestIdleCallback === 'function' ? requestIdleCallback(fn, { timeout: 3000 }) : setTimeout(fn, 600);
+  const go = () => {
+    startDownload().then(files => idle(() => { defaultLoader.session(files).catch(() => {}); }), () => {});
+  };
   if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 3000 });
   else setTimeout(go, 1200);
   return true;
 }
 
 // 默认加载器：等下载完成（按字节报告进度），再创建推理会话。
+// 会话只建一次并缓存；若启动超时被放弃，resetSession 丢掉这次挂起的创建，下次点击重新建。
 let sessionPromise = null;
+export const sessionTiming = { started: 0, ms: null, attempts: 0 };
 const defaultLoader = {
   download(onBytes) {
     download.listeners.add(onBytes);
@@ -217,15 +223,21 @@ const defaultLoader = {
     return { promise, release };
   },
   abortDownload() { download.controller?.abort(); },
+  resetSession() { sessionPromise = null; },
   async session(files) {
     if (sessionPromise) return sessionPromise;
+    sessionTiming.attempts++;
+    sessionTiming.started = performance.now();
+    sessionTiming.ms = null;
     const attempt = (async () => {
       const { ort, wasm, model } = files;
       ort.env.wasm.numThreads = 1;
       ort.env.wasm.proxy = false;
       ort.env.wasm.wasmPaths = new URL('ort/', vendor).href;
-      ort.env.wasm.wasmBinary = wasm.buffer;
-      const session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      // 每次给运行库一份新拷贝，避免上次挂起的创建占用或转移同一块内存。
+      ort.env.wasm.wasmBinary = wasm.slice().buffer;
+      const session = await ort.InferenceSession.create(model.slice(), { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      sessionTiming.ms = Math.round(performance.now() - sessionTiming.started);
       return { ort, session };
     })();
     sessionPromise = attempt;
@@ -284,8 +296,9 @@ export function aiCutout(image, { onProgress = () => {}, stallMs = STALL_MS, tot
     const stop = (reason, why) => {
       if (settled) return;
       finish();
-      // 下载卡住才作废下载；推理超时不影响已下好的文件。
+      // 下载卡住才作废下载；推理超时不影响已下好的文件，但丢掉挂起的会话，下次重建。
       if (why === 'stall' && phase === 'download') loader.abortDownload?.();
+      if (phase === 'infer') loader.resetSession?.();
       reject(new CutoutError(reason, phase));
     };
     const kick = () => {
@@ -294,9 +307,10 @@ export function aiCutout(image, { onProgress = () => {}, stallMs = STALL_MS, tot
         ? `模型下载 ${Math.round(stallMs / 1000)} 秒没有进展`
         : `AI 抠图 ${Math.round(stallMs / 1000)} 秒没有进展`, 'stall'), stallMs);
     };
+    // 停滞判定只管下载：启动模型、识别期间没有进度事件，只受 TOTAL_MS 约束。
     const progress = (ratio, text) => {
       if (settled) return;
-      kick();
+      if (phase === 'download') kick();
       if (text !== lastText) { lastText = text; onProgress(ratio, text); }
     };
     kick();
@@ -309,6 +323,7 @@ export function aiCutout(image, { onProgress = () => {}, stallMs = STALL_MS, tot
       const files = await handle.promise;
       if (settled) return null;
       phase = 'infer';
+      clearTimeout(stallTimer);
       totalTimer = setTimeout(() => stop(`AI 抠图超过 ${Math.round(totalMs / 1000)} 秒`, 'total'), totalMs);
       progress(.98, '启动 AI 抠图模型');
       const runtime = await loader.session(files);

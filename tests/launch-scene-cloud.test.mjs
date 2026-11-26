@@ -90,8 +90,9 @@ test('换背景与 AI 抠图模型按需加载，首屏不引入', async () => {
 });
 
 // 模拟加载器：每 tick 毫秒报一次下载进度，共 steps 次后完成；推理耗时 inferMs。
-function fakeLoader({ tick = 20, steps = 10, stallAfter = Infinity, inferMs = 5 } = {}) {
-  const calls = { aborted: 0 };
+function fakeLoader({ tick = 20, steps = 10, stallAfter = Infinity, inferMs = 5, sessionMs = 0, hangFirstSession = false } = {}) {
+  const calls = { aborted: 0, sessions: 0, resets: 0 };
+  let cached = null;
   return {
     calls,
     download(onBytes) {
@@ -108,7 +109,15 @@ function fakeLoader({ tick = 20, steps = 10, stallAfter = Infinity, inferMs = 5 
       return { promise, release: () => {} };
     },
     abortDownload() { calls.aborted++; },
-    async session() { return {}; },
+    session() {
+      if (cached) return cached;
+      calls.sessions++;
+      cached = hangFirstSession && calls.sessions === 1
+        ? new Promise(() => {})
+        : new Promise(r => setTimeout(() => r({}), sessionMs));
+      return cached;
+    },
+    resetSession() { calls.resets++; cached = null; },
     infer: () => new Promise(r => setTimeout(() => r('mask'), inferMs)),
   };
 }
@@ -149,4 +158,21 @@ test('AI 助手不平铺全部渠道文案：只展开选中作品，其余折�
   assert.match(app, /其余 \$\{rest\.length\} 件/);
   assert.match(app, /work\.id === activeChannel/);
   assert.match(app, /ai-stream-more/);
+});
+
+test('AI 抠图：启动模型阶段没有进度事件，只要不到总时长就不判停', async () => {
+  // 启动 300ms，远超 stallMs=80ms；总时长 1000ms 内完成，应成功。
+  const loader = fakeLoader({ tick: 10, steps: 3, sessionMs: 300 });
+  const result = await aiCutout(null, { stallMs: 80, totalMs: 1000, loader });
+  assert.equal(result.method, 'ai');
+  assert.equal(loader.calls.resets, 0);
+});
+
+test('AI 抠图：启动超时后丢弃挂起的会话，再点一次会新建并成功', async () => {
+  const loader = fakeLoader({ tick: 10, steps: 3, hangFirstSession: true });
+  await assert.rejects(aiCutout(null, { stallMs: 80, totalMs: 150, loader }), error => error.phase === 'infer' && /超过/.test(error.message));
+  assert.equal(loader.calls.resets, 1);
+  const result = await aiCutout(null, { stallMs: 80, totalMs: 1000, loader });
+  assert.equal(result.method, 'ai');
+  assert.equal(loader.calls.sessions, 2);
 });

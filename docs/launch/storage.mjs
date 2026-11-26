@@ -1,4 +1,4 @@
-import { ARCHIVE_PREFIX, KEEP_ARCHIVED, prunable } from './landing.mjs?v=202611264';
+import { ARCHIVE_PREFIX, KEEP_ARCHIVED, prunable } from './landing.mjs?v=202611265';
 
 const archiveRange = () => IDBKeyRange.bound(ARCHIVE_PREFIX, ARCHIVE_PREFIX + '￿');
 const done = transaction => new Promise((resolve, reject) => {
