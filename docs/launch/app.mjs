@@ -1,17 +1,17 @@
 import {
   applyFacts, artworkTitle, channelLead, channels, editCopy, factLine, fields, money, normalizeBrand, normalizeFacts,
   generatedForFacts, ruleChange, ruleFacts, scopeLabel, staleEvidence,
-} from './workflow.mjs?v=202611262';
-import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611262';
-import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611262';
-import { mountCanvas } from './canvas-board.mjs?v=202611262';
-import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611262';
-import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611262';
+} from './workflow.mjs?v=202611263';
+import { art, getBlob, base64Photo, loadPhoto, packageAssets, shrinkPhoto } from './media.mjs?v=202611263';
+import { works, duplicateWork, deleteWork, restoreWork } from './works.mjs?v=202611263';
+import { mountCanvas } from './canvas-board.mjs?v=202611263';
+import { listDrafts, loadDraft, openDraftStore, putBackDraft, removeDraft, saveDraft } from './storage.mjs?v=202611263';
+import { SESSION_KEY, UNDO_MS, continueStage, draftSummary, recentDrafts, resumeStage } from './landing.mjs?v=202611263';
 import {
   channelNames, fallbackPalette, firstQuestion, paletteFromPixels, parseInstruction, rewriteCandidates, titleLimit, titleOverflow, toneCopy, tones,
-} from './ai-engine.mjs?v=202611262';
-import { illustrationFile } from './illustration.mjs?v=202611262';
-import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611262';
+} from './ai-engine.mjs?v=202611263';
+import { illustrationFile } from './illustration.mjs?v=202611263';
+import { CLOUD_DOWN, CLOUD_NOTE, cloudMessage, cloudStatus, generateScene, sceneStyles, unlockCloud } from './cloud.mjs?v=202611263';
 
 const $ = id => document.getElementById(id);
 const formScope = () => $('factsForm').querySelector('input[name="scope"]:checked')?.value ?? '';
@@ -267,6 +267,7 @@ function resetRun(label) {
   $('aiRunTime').textContent = '';
   for (const item of $('aiSteps').children) stepState(item.dataset.step, 'pending');
   $('aiChips').replaceChildren();
+  streamCount = 0;
   $('aiStream').replaceChildren();
   $('aiFallback').hidden = true;
   $('aiSuggest').hidden = true;
@@ -299,19 +300,61 @@ function factChips(facts, plan, pendingChecks) {
   });
 }
 
-async function streamCopy() {
+// AI 助手只展开画布当前选中作品的文案；其余作品折叠成一行「其余 N 件 ›」，点开可切换。
+let streamCount = 0;
+function streamItem(work, compact = false) {
+  const item = document.createElement('li');
+  const label = document.createElement('small');
+  label.textContent = work.title;
+  const title = document.createElement('strong');
+  title.textContent = artworkTitle(draft, work);
+  if (compact) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ai-stream-pick';
+    button.dataset.work = work.id;
+    button.append(label, title);
+    button.addEventListener('click', () => { openChannel(work.id, false); selectPane('assist'); });
+    item.append(button);
+    return item;
+  }
+  const body = document.createElement('span');
+  body.textContent = channelLead(draft, work);
+  item.dataset.selected = '';
+  item.append(label, title, body);
+  return item;
+}
+
+function renderStream() {
   const list = $('aiStream');
-  list.replaceChildren();
-  for (const work of currentWorks()) {
-    const item = document.createElement('li');
-    const label = document.createElement('small');
-    label.textContent = work.title;
-    const title = document.createElement('strong');
-    title.textContent = artworkTitle(draft, work);
-    const body = document.createElement('span');
-    body.textContent = channelLead(draft, work);
-    item.append(label, title, body);
-    list.append(item);
+  const shown = currentWorks().slice(0, streamCount);
+  if (!shown.length) { if (!list.querySelector('.skeleton')) list.replaceChildren(); return; }
+  const primary = shown.find(work => work.id === activeChannel) ?? shown[0];
+  const rest = shown.filter(work => work !== primary);
+  const open = list.querySelector('details')?.open ?? false;
+  const nodes = [Object.assign(document.createElement('ul'), { className: 'ai-stream-main' })];
+  nodes[0].append(streamItem(primary));
+  if (rest.length) {
+    const more = document.createElement('details');
+    more.className = 'ai-stream-more';
+    more.open = open;
+    const summary = document.createElement('summary');
+    summary.textContent = `其余 ${rest.length} 件`;
+    const others = document.createElement('ul');
+    others.append(...rest.map(work => streamItem(work, true)));
+    more.append(summary, others);
+    nodes.push(more);
+  }
+  list.replaceChildren(...nodes);
+}
+
+async function streamCopy() {
+  streamCount = 0;
+  $('aiStream').replaceChildren();
+  const total = currentWorks().length;
+  for (let i = 1; i <= total; i++) {
+    streamCount = i;
+    renderStream();
     await wait(120);
   }
 }
@@ -369,6 +412,7 @@ async function runPipeline(facts, plan, pendingChecks, { template = false } = {}
     if (token !== runToken) return;
     persist({ ...draft, generated: copy.generated, copyReason: copy.failed ? 'AI 文案暂不可用' : copy.reason ?? (template ? '已选择模板' : '') });
     if (copy.failed) {
+      streamCount = 0;
       $('aiStream').replaceChildren();
       $('aiFallback').hidden = false;
     }
@@ -1314,7 +1358,7 @@ async function rebuildScenePicture() {
   if (!scene) { scenePic = null; return; }
   try {
     const [{ scenePicture }, product, background] = await Promise.all([
-      import('./scenes.mjs?v=202611262'), bitmap(scene.product), bitmap(scene.background),
+      import('./scenes.mjs?v=202611263'), bitmap(scene.product), bitmap(scene.background),
     ]);
     if (draft.scene !== scene) return;
     scenePic = scenePicture(scene.state, { product, background });
@@ -1353,7 +1397,7 @@ async function openScenePanel() {
   if (!sceneTools) {
     $('cutoutStatus').textContent = '正在打开换背景工具…';
     try {
-      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611262');
+      const { mountScenePanel } = await import('./scene-panel.mjs?v=202611263');
       sceneTools = mountScenePanel({
         $, notice, reducedMotion,
         photo: () => $('photoPreview'),
@@ -1740,6 +1784,7 @@ function renderMode() {
   if (focused !== wasFocused) selectPane(focused ? 'work' : pane === 'work' ? 'assist' : pane);
   wasFocused = focused;
   renderWorkList();
+  if (streamCount) renderStream();
   $('canvasOverview').setAttribute('aria-pressed', String(!focused));
   $('canvasFocus').setAttribute('aria-pressed', String(focused));
   for (const button of $('channelList').children) {

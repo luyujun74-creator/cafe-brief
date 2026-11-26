@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CLOUD_DOWN, CLOUD_NOTE, WORKER, absolute, cloudBase, cloudMessage, cloudPayload, parseCloudBody, sceneStyles } from '../docs/launch/cloud.mjs';
 import { defaultPlacement, productRect, sceneLabel, scenes } from '../docs/launch/scenes.mjs';
-import { colorMask } from '../docs/launch/cutout.mjs';
+import { aiCutout, colorMask } from '../docs/launch/cutout.mjs';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
 
@@ -87,4 +87,66 @@ test('换背景与 AI 抠图模型按需加载，首屏不引入', async () => {
   assert.match(panel, /智能裁切\+柔化边缘/);
   const cutout = await read('../docs/launch/cutout.mjs');
   assert.match(cutout, /STALL_MS = 15_000/);
+});
+
+// 模拟加载器：每 tick 毫秒报一次下载进度，共 steps 次后完成；推理耗时 inferMs。
+function fakeLoader({ tick = 20, steps = 10, stallAfter = Infinity, inferMs = 5 } = {}) {
+  const calls = { aborted: 0 };
+  return {
+    calls,
+    download(onBytes) {
+      let timer;
+      const promise = new Promise(resolve => {
+        let n = 0;
+        timer = setInterval(() => {
+          if (n >= stallAfter) { if (calls.aborted) clearInterval(timer); return; }
+          n++;
+          onBytes(n * 1000, steps * 1000);
+          if (n >= steps) { clearInterval(timer); resolve({ files: true }); }
+        }, tick);
+      });
+      return { promise, release: () => {} };
+    },
+    abortDownload() { calls.aborted++; },
+    async session() { return {}; },
+    infer: () => new Promise(r => setTimeout(() => r('mask'), inferMs)),
+  };
+}
+
+test('AI 抠图：下载持续有进度时，超过总时长也不超时', async () => {
+  const seen = [];
+  // 下载约 400ms，远超 totalMs=150ms；但每 20ms 有进度，不该被判停或超时。
+  const result = await aiCutout(null, { stallMs: 80, totalMs: 150, loader: fakeLoader({ tick: 20, steps: 20 }), onProgress: (r, t) => seen.push(t) });
+  assert.equal(result.method, 'ai');
+  assert.equal(result.mask, 'mask');
+  assert.ok(seen.some(t => t.startsWith('下载 AI 抠图模型')));
+});
+
+test('AI 抠图：下载无进展超过停滞上限才放弃，并标明是下载阶段', async () => {
+  const loader = fakeLoader({ tick: 20, steps: 20, stallAfter: 3 });
+  await assert.rejects(aiCutout(null, { stallMs: 80, totalMs: 10_000, loader }), error => error.phase === 'download' && /没有进展/.test(error.message));
+  assert.equal(loader.calls.aborted, 1);
+});
+
+test('AI 抠图：总时长只计下载完成后的启动与推理', async () => {
+  const loader = fakeLoader({ tick: 10, steps: 3, inferMs: 400 });
+  await assert.rejects(aiCutout(null, { stallMs: 10_000, totalMs: 120, loader }), error => error.phase === 'infer' && /超过/.test(error.message));
+  assert.equal(loader.calls.aborted, 0);
+});
+
+test('换背景面板打开时空闲预取模型，首屏不预取', async () => {
+  const panel = await read('../docs/launch/scene-panel.mjs');
+  assert.match(panel, /prefetchCutoutModel\(\)/);
+  assert.match(panel, /模型还在下载，可稍后再点 AI 精细抠图/);
+  const cutout = await read('../docs/launch/cutout.mjs');
+  assert.match(cutout, /requestIdleCallback/);
+  const app = await read('../docs/launch/app.mjs');
+  assert.doesNotMatch(app, /prefetchCutoutModel/);
+});
+
+test('AI 助手不平铺全部渠道文案：只展开选中作品，其余折叠', async () => {
+  const app = await read('../docs/launch/app.mjs');
+  assert.match(app, /其余 \$\{rest\.length\} 件/);
+  assert.match(app, /work\.id === activeChannel/);
+  assert.match(app, /ai-stream-more/);
 });

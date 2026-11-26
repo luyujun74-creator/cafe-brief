@@ -1,5 +1,6 @@
 // 抠出商品：先用本机颜色算法秒出一版，再按需加载 AI 抠图模型（u2netp，约 4.6 MB + 运行库 11 MB）细化。
-// 模型 15 秒没有任何下载/计算进展、或总计超过 45 秒，就保留本机结果并明确告知，不会一直停在等待态。
+// 模型 15 秒没有任何下载/计算进展、或下载完成后启动+推理超过 45 秒，就保留本机结果并明确告知，不会一直停在等待态。
+// 下载有进度时一直等，不算超时。
 const vendor = new URL('../vendor/', import.meta.url);
 export const STALL_MS = 15_000;
 export const TOTAL_MS = 45_000;
@@ -158,33 +159,80 @@ async function fetchBytes(url, onProgress, signal) {
   return bytes;
 }
 
-let sessionPromise = null;
-async function loadSession(progress, signal) {
-  if (sessionPromise) return sessionPromise;
+// 模型文件只下载一次：多次点击、面板打开时的空闲预取共用同一个下载；
+// 用户中途放弃不会打断下载，稍后再点直接接着用。15 秒没有任何新字节才判定下载卡住并作废重来。
+const download = { promise: null, loaded: 0, total: 11_246_032 + 4_574_861, state: 'idle', listeners: new Set(), controller: null };
+const notify = () => { for (const fn of download.listeners) fn(download.loaded, download.total); };
+
+export function cutoutModelState() {
+  return { state: download.state, loaded: download.loaded, total: download.total };
+}
+
+function startDownload() {
+  if (download.promise) return download.promise;
   const files = { wasm: [0, 11_246_032], model: [0, 4_574_861] };
-  const report = () => {
-    const loaded = files.wasm[0] + files.model[0];
-    const total = files.wasm[1] + files.model[1];
-    progress(Math.min(.99, loaded / total), `下载 AI 抠图模型 ${(loaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+  const controller = new AbortController();
+  download.controller = controller;
+  download.state = 'downloading';
+  const update = () => {
+    download.loaded = files.wasm[0] + files.model[0];
+    download.total = files.wasm[1] + files.model[1];
+    notify();
   };
-  const attempt = (async () => {
-    const [ort, wasm, model] = await Promise.all([
-      import(new URL('ort/ort.wasm.min.mjs', vendor).href),
-      fetchBytes(new URL('ort/ort-wasm-simd-threaded.wasm', vendor), (loaded, total) => { files.wasm = [loaded, total || files.wasm[1]]; report(); }, signal),
-      fetchBytes(new URL('u2netp/u2netp.onnx', vendor), (loaded, total) => { files.model = [loaded, total || files.model[1]]; report(); }, signal),
-    ]);
-    progress(.99, '启动 AI 抠图模型');
-    ort.env.wasm.numThreads = 1;
-    ort.env.wasm.proxy = false;
-    ort.env.wasm.wasmPaths = new URL('ort/', vendor).href;
-    ort.env.wasm.wasmBinary = wasm.buffer;
-    const session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
-    return { ort, session };
-  })();
-  sessionPromise = attempt;
-  attempt.catch(() => { if (sessionPromise === attempt) sessionPromise = null; });
+  const attempt = Promise.all([
+    import(new URL('ort/ort.wasm.min.mjs', vendor).href),
+    fetchBytes(new URL('ort/ort-wasm-simd-threaded.wasm', vendor), (loaded, total) => { files.wasm = [loaded, total || files.wasm[1]]; update(); }, controller.signal),
+    fetchBytes(new URL('u2netp/u2netp.onnx', vendor), (loaded, total) => { files.model = [loaded, total || files.model[1]]; update(); }, controller.signal),
+  ]).then(([ort, wasm, model]) => { download.state = 'ready'; notify(); return { ort, wasm, model }; });
+  download.promise = attempt;
+  attempt.catch(() => {
+    if (download.promise !== attempt) return;
+    download.promise = null;
+    download.state = 'failed';
+    download.loaded = 0;
+    notify();
+  });
   return attempt;
 }
+
+// 打开「换背景」面板时在浏览器空闲时预取模型（首屏不调用；省流量模式下跳过）。
+export function prefetchCutoutModel() {
+  if (download.promise || globalThis.navigator?.connection?.saveData) return false;
+  const go = () => { startDownload().catch(() => {}); };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 3000 });
+  else setTimeout(go, 1200);
+  return true;
+}
+
+// 默认加载器：等下载完成（按字节报告进度），再创建推理会话。
+let sessionPromise = null;
+const defaultLoader = {
+  download(onBytes) {
+    download.listeners.add(onBytes);
+    if (download.state === 'downloading') onBytes(download.loaded, download.total);
+    const release = () => download.listeners.delete(onBytes);
+    const promise = startDownload();
+    promise.then(release, release);
+    return { promise, release };
+  },
+  abortDownload() { download.controller?.abort(); },
+  async session(files) {
+    if (sessionPromise) return sessionPromise;
+    const attempt = (async () => {
+      const { ort, wasm, model } = files;
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.proxy = false;
+      ort.env.wasm.wasmPaths = new URL('ort/', vendor).href;
+      ort.env.wasm.wasmBinary = wasm.buffer;
+      const session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      return { ort, session };
+    })();
+    sessionPromise = attempt;
+    attempt.catch(() => { if (sessionPromise === attempt) sessionPromise = null; });
+    return attempt;
+  },
+  infer: (runtime, image) => runModel(runtime, image),
+};
 
 async function runModel({ ort, session }, image) {
   const size = 320;
@@ -218,41 +266,63 @@ async function runModel({ ort, session }, image) {
 }
 
 // 带停滞检测的 AI 抠图：onProgress(比例, 文字)。
-export function aiCutout(image, { onProgress = () => {}, stallMs = STALL_MS, totalMs = TOTAL_MS, fail = false } = {}) {
-  const controller = new AbortController();
+// 下载阶段只判「15 秒没有新字节」，不计入总时长；TOTAL_MS 只从下载完成后开始算（启动模型 + 推理）。
+export class CutoutError extends Error {
+  constructor(message, phase) { super(message); this.phase = phase; }
+}
+
+export function aiCutout(image, { onProgress = () => {}, stallMs = STALL_MS, totalMs = TOTAL_MS, fail = false, loader = defaultLoader } = {}) {
   let stallTimer;
+  let totalTimer;
   let lastText = '';
+  let phase = 'download';
+  let settled = false;
+  let release = () => {};
   return new Promise((resolve, reject) => {
-    const stop = reason => {
-      clearTimeout(stallTimer);
-      clearTimeout(totalTimer);
-      controller.abort();
-      reject(new Error(reason));
+    const finish = () => { settled = true; clearTimeout(stallTimer); clearTimeout(totalTimer); release(); };
+    const stop = (reason, why) => {
+      if (settled) return;
+      finish();
+      // 下载卡住才作废下载；推理超时不影响已下好的文件。
+      if (why === 'stall' && phase === 'download') loader.abortDownload?.();
+      reject(new CutoutError(reason, phase));
     };
     const kick = () => {
       clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => stop(`AI 抠图 ${Math.round(stallMs / 1000)} 秒没有进展`), stallMs);
+      stallTimer = setTimeout(() => stop(phase === 'download'
+        ? `模型下载 ${Math.round(stallMs / 1000)} 秒没有进展`
+        : `AI 抠图 ${Math.round(stallMs / 1000)} 秒没有进展`, 'stall'), stallMs);
     };
-    const totalTimer = setTimeout(() => stop(`AI 抠图超过 ${Math.round(totalMs / 1000)} 秒`), totalMs);
     const progress = (ratio, text) => {
+      if (settled) return;
       kick();
       if (text !== lastText) { lastText = text; onProgress(ratio, text); }
     };
     kick();
     (async () => {
-      if (fail) throw new Error('AI 抠图模型不可用');
-      const runtime = await loadSession(progress, controller.signal);
+      if (fail) throw new CutoutError('AI 抠图模型不可用', 'download');
+      const handle = loader.download((loaded, total) => {
+        progress(Math.min(.97, loaded / Math.max(1, total)), `下载 AI 抠图模型 ${(loaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+      });
+      release = handle.release || release;
+      const files = await handle.promise;
+      if (settled) return null;
+      phase = 'infer';
+      totalTimer = setTimeout(() => stop(`AI 抠图超过 ${Math.round(totalMs / 1000)} 秒`, 'total'), totalMs);
+      progress(.98, '启动 AI 抠图模型');
+      const runtime = await loader.session(files);
+      if (settled) return null;
       progress(1, 'AI 正在识别商品轮廓');
       await new Promise(r => setTimeout(r, 30));
-      return runModel(runtime, image);
+      return loader.infer(runtime, image);
     })().then(mask => {
-      clearTimeout(stallTimer);
-      clearTimeout(totalTimer);
+      if (settled) return;
+      finish();
       resolve({ mask, method: 'ai' });
     }, error => {
-      clearTimeout(stallTimer);
-      clearTimeout(totalTimer);
-      reject(error);
+      if (settled) return;
+      finish();
+      reject(error instanceof CutoutError ? error : new CutoutError(error.message, phase));
     });
   });
 }

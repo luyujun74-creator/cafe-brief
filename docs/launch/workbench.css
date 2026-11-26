@@ -295,6 +295,21 @@ main > .notice:not(:empty) { position: sticky; top: var(--s-2); z-index: 6; widt
 .ai-stream li { display: grid; gap: 1px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--bg-subtle); }
 .ai-stream li small { color: var(--text-3); }
 .ai-stream li strong { font-weight: 500; }
+.ai-stream ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ai-stream li[data-selected] { padding: 10px 12px; background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+.ai-stream li[data-selected] strong { font-size: var(--fs-14, 14px); font-weight: 600; }
+.ai-stream-more { border-radius: var(--r-sm); }
+.ai-stream-more > summary { display: flex; align-items: center; min-height: 44px; padding: 0 10px; color: var(--text-2); cursor: pointer; list-style: none; border-radius: var(--r-sm); }
+.ai-stream-more > summary::-webkit-details-marker { display: none; }
+.ai-stream-more > summary::after { content: '›'; margin-inline-start: 6px; transition: rotate .2s var(--easing); }
+.ai-stream-more[open] > summary::after { rotate: 90deg; }
+.ai-stream-more > summary:hover { background: var(--bg-subtle); }
+.ai-stream-more > ul { margin-top: 4px; }
+.ai-stream-more li { padding: 0; background: none; }
+.ai-stream-pick { display: grid; gap: 1px; inline-size: 100%; min-height: 44px; padding: 6px 10px; text-align: start; border: 0; border-radius: var(--r-sm); background: var(--bg-subtle); color: inherit; font: inherit; cursor: pointer; }
+.ai-stream-pick:hover, .ai-stream-pick:focus-visible { background: var(--brand-soft); }
+.ai-stream-pick small { color: var(--text-3); }
+.ai-stream-pick strong { font-weight: 500; }
 .ai-stream .skeleton { height: 40px; background: linear-gradient(100deg, var(--skeleton-1) 30%, var(--skeleton-2) 50%, var(--skeleton-1) 70%) 0 0 / 300% 100%; }
 .ai-fallback { display: grid; gap: var(--s-2); padding: var(--s-3); border-radius: var(--r-md); background: var(--warn-bg); border: 1px solid var(--warn-border); }
 .ai-fallback p { color: #A6531B; font-weight: 500; }
