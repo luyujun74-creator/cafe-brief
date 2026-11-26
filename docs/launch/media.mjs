@@ -1,5 +1,5 @@
-import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs?v=202611263';
-import { makeZip } from './zip.mjs?v=202611263';
+import { artworkTitle, channelCopy, money, normalizeBrand, scopeLabel } from './workflow.mjs?v=202611264';
+import { makeZip } from './zip.mjs?v=202611264';
 
 export const getBlob = (canvas, quality) => new Promise((resolve, reject) => {
   canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('图片编码失败。')), 'image/jpeg', quality);

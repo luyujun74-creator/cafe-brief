@@ -174,6 +174,7 @@ function startDownload() {
   const controller = new AbortController();
   download.controller = controller;
   download.state = 'downloading';
+  // GitHub Pages 压缩传输时 content-length 是压缩后的大小，与读到的解压字节对不上，所以按已知解压大小显示进度。
   const update = () => {
     download.loaded = files.wasm[0] + files.model[0];
     download.total = files.wasm[1] + files.model[1];
@@ -181,8 +182,8 @@ function startDownload() {
   };
   const attempt = Promise.all([
     import(new URL('ort/ort.wasm.min.mjs', vendor).href),
-    fetchBytes(new URL('ort/ort-wasm-simd-threaded.wasm', vendor), (loaded, total) => { files.wasm = [loaded, total || files.wasm[1]]; update(); }, controller.signal),
-    fetchBytes(new URL('u2netp/u2netp.onnx', vendor), (loaded, total) => { files.model = [loaded, total || files.model[1]]; update(); }, controller.signal),
+    fetchBytes(new URL('ort/ort-wasm-simd-threaded.wasm', vendor), loaded => { files.wasm = [loaded, Math.max(loaded, 11_246_032)]; update(); }, controller.signal),
+    fetchBytes(new URL('u2netp/u2netp.onnx', vendor), loaded => { files.model = [loaded, Math.max(loaded, 4_574_861)]; update(); }, controller.signal),
   ]).then(([ort, wasm, model]) => { download.state = 'ready'; notify(); return { ort, wasm, model }; });
   download.promise = attempt;
   attempt.catch(() => {
